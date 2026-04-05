@@ -2,6 +2,7 @@ import { platformRegistry } from "@content-empire/connectors";
 import { createAccountAction, createProjectAction } from "../actions";
 import { DashboardShell } from "../../components/dashboard-shell";
 import { getPlatformSetup, getProjects } from "../../lib/api";
+import { platformGuides } from "../../lib/platform-guides";
 
 export const dynamic = "force-dynamic";
 
@@ -63,6 +64,11 @@ export default async function ConnectPage() {
               </option>
             ))}
           </select>
+          <select name="connectorMode" required defaultValue="session_auth">
+            <option value="session_auth">session_auth</option>
+            <option value="hybrid_auth">hybrid_auth</option>
+            <option value="api_auth">api_auth</option>
+          </select>
           <input name="displayName" placeholder="Display name" required />
           <input name="handle" placeholder="@handle or site URL" required />
           <select name="automationMode" required>
@@ -86,7 +92,26 @@ export default async function ConnectPage() {
               <span>{profile.supportedModes.join(" / ")}</span>
               <p>API fields: {profile.apiFields.length} | Session fields: {profile.sessionFields.length}</p>
               <p>Execution: {profile.liveExecutionImplemented ? "live" : "scaffolded"}</p>
+              <p>Recommended now: {platformGuides[profile.platform].recommendedMode}</p>
               <p>{profile.notes.join(" ")}</p>
+            </article>
+          ))}
+        </div>
+      </section>
+
+      <section className="panel">
+        <header className="panel-header">
+          <h2>Current operating policy</h2>
+          <p>The live rollout stance the operator and AI should follow right now.</p>
+        </header>
+        <div className="platform-cards">
+          {Object.entries(platformGuides).map(([platform, guide]) => (
+            <article className="platform-card" key={platform}>
+              <strong>{platform}</strong>
+              <span>{guide.status}</span>
+              <p>Priority: {guide.currentPriority}</p>
+              <p>Recommended mode: {guide.recommendedMode}</p>
+              {guide.callbackUrl ? <p>Callback: {guide.callbackUrl}</p> : null}
             </article>
           ))}
         </div>

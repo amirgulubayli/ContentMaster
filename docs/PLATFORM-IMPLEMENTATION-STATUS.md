@@ -14,14 +14,14 @@ This document reflects the implementation now present in the codebase.
 
 | Platform | Modes in app | Setup | Session import | Official auth | Official execution | Session execution | Notes |
 | --- | --- | --- | --- | --- | --- | --- | --- |
-| X | `api_auth` | Yes | No | Yes | Yes | No | OAuth and post/metrics API paths are wired. |
-| LinkedIn | `api_auth` | Yes | No | Yes | Yes | No | OAuth and post API path are wired. |
+| X | `api_auth`, `hybrid_auth` | Yes | Yes | Yes | Yes | Yes | Use official auth first. Session fallback exists, but X policy risk is materially higher for browser automation than for API use. |
+| LinkedIn | `api_auth`, `hybrid_auth` | Yes | Yes | Yes | Yes | Yes | Use official auth for posting. Use session execution for comments, inbox, and other non-posting workflows if needed. |
 | Medium | `session_auth` | Yes | Yes | N/A | No | Yes | Browser execution uses imported bundles and operator-supplied selectors/steps. |
 | Substack | `session_auth` | Yes | Yes | N/A | No | Yes | Browser execution uses imported bundles and operator-supplied selectors/steps. |
 | Quora | `session_auth` | Yes | Yes | N/A | No | Yes | Browser execution uses imported bundles and operator-supplied selectors/steps. |
-| Reddit | `api_auth`, `hybrid_auth` | Yes | Yes | Yes | Yes | Yes | Official OAuth/post/reply/inbox paths are wired, with session fallback available. |
+| Reddit | `session_auth`, `hybrid_auth`, `api_auth` | Yes | Yes | Yes | Yes | Yes | Run Reddit session-first for now. Keep official OAuth/API as optional later enablement if you decide to revisit app registration. |
 | Bluesky | `api_auth` | Yes | No | App password | Yes | No | Session creation and post execution are wired from app password setup. |
-| Pinterest | `api_auth`, `hybrid_auth` | Yes | Yes | Yes | Yes | Yes | Official OAuth/publish/analytics paths are wired, with session fallback available. |
+| Pinterest | `session_auth`, `api_auth`, `hybrid_auth` | Yes | Yes | Yes | Yes | Yes | Run Pinterest session-first for now. Keep official OAuth/API as optional later enablement if app approval is ready. |
 | Facebook | `api_auth`, `hybrid_auth` | Yes | Yes | Yes | Yes | Yes | Meta business OAuth and official API flows are wired, with session fallback available. |
 | Instagram | `api_auth`, `hybrid_auth` | Yes | Yes | Yes | Yes | Yes | Meta business OAuth and official API flows are wired, with session fallback available. |
 | TikTok | `api_auth`, `hybrid_auth` | Yes | Yes | Yes | Yes | Yes | Official OAuth/refresh/publish/analytics paths are wired, with session fallback available. |

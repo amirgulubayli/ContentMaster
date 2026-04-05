@@ -8,6 +8,7 @@ import {
 } from "../../actions";
 import { DashboardShell } from "../../../components/dashboard-shell";
 import { getAccountProfile } from "../../../lib/api";
+import { platformGuides } from "../../../lib/platform-guides";
 
 export const dynamic = "force-dynamic";
 
@@ -91,6 +92,7 @@ export default async function AccountDetailPage({
   }
 
   const { account, blueprint, readiness, setup } = profile;
+  const guide = platformGuides[account.platform];
   const authStartUrl =
     account.platform === "facebook" || account.platform === "instagram"
       ? `/api/auth/meta/start?accountId=${account.id}`
@@ -181,7 +183,7 @@ export default async function AccountDetailPage({
         <section className="panel">
           <header className="panel-header">
             <h2>Provider auth</h2>
-            <p>Live OAuth connection state for official Meta and TikTok integrations.</p>
+            <p>Official auth/app-password state for platforms that use provider credentials.</p>
           </header>
           <div className="stack-column">
             {profile.authConnection ? (
@@ -275,6 +277,52 @@ export default async function AccountDetailPage({
             </form>
           </div>
         </article>
+      </section>
+
+      <section className="panel">
+        <header className="panel-header">
+          <h2>Setup instructions</h2>
+          <p>Operator instructions for how to gather credentials, cookies, or app passwords for this platform.</p>
+        </header>
+        <div className="stack-column">
+          <article className="platform-card">
+            <strong>Current operating policy</strong>
+            <span>{guide.recommendedMode}</span>
+            <p>{guide.currentPriority}</p>
+            <p>{guide.status}</p>
+            {guide.callbackUrl ? <p>Callback URL: {guide.callbackUrl}</p> : null}
+          </article>
+          {guide.authGuide?.length ? (
+            <details className="platform-card">
+              <summary>How to get auth credentials</summary>
+              <ol className="ordered-list compact-list">
+                {guide.authGuide.map((step) => (
+                  <li key={step}>{step}</li>
+                ))}
+              </ol>
+            </details>
+          ) : null}
+          {guide.cookieGuide?.length ? (
+            <details className="platform-card">
+              <summary>How to get cookies or session bundle</summary>
+              <ol className="ordered-list compact-list">
+                {guide.cookieGuide.map((step) => (
+                  <li key={step}>{step}</li>
+                ))}
+              </ol>
+            </details>
+          ) : null}
+          {guide.credentialNotes?.length ? (
+            <article className="platform-card">
+              <strong>Credential notes</strong>
+              <ul className="ordered-list compact-list">
+                {guide.credentialNotes.map((note) => (
+                  <li key={note}>{note}</li>
+                ))}
+              </ul>
+            </article>
+          ) : null}
+        </div>
       </section>
 
       <section className="panel">

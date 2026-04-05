@@ -57,6 +57,7 @@ export async function createAccountAction(formData: FormData) {
     platform: formData.get("platform"),
     handle: formData.get("handle"),
     displayName: formData.get("displayName"),
+    connectorMode: formData.get("connectorMode"),
     automationMode: formData.get("automationMode")
   });
 

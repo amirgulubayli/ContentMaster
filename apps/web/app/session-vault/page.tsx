@@ -2,6 +2,7 @@ import Link from "next/link";
 import { captureSessionAction, importSessionBundleAction } from "../actions";
 import { DashboardShell } from "../../components/dashboard-shell";
 import { getAccounts, getSessionVault } from "../../lib/api";
+import { platformGuides } from "../../lib/platform-guides";
 
 export const dynamic = "force-dynamic";
 
@@ -169,6 +170,32 @@ export default async function SessionVaultPage() {
             </form>
           )}
         </article>
+      </section>
+
+      <section className="panel">
+        <header className="panel-header">
+          <h2>Cookie and app-password help</h2>
+          <p>Use these operator notes when deciding whether to import cookies or gather official credentials.</p>
+        </header>
+        <div className="platform-cards">
+          {sessionAccounts.map((account) => {
+            const guide = platformGuides[account.platform];
+            return (
+              <article className="platform-card" key={`guide-${account.id}`}>
+                <strong>{account.displayName}</strong>
+                <span>{account.platform}</span>
+                <p>Recommended mode: {guide.recommendedMode}</p>
+                <p>{guide.currentPriority}</p>
+                {guide.cookieGuide?.length ? <p>{guide.cookieGuide[0]}</p> : <p>No cookie guidance needed for this account.</p>}
+                <p>
+                  <Link href={`/accounts/${account.id}`} prefetch={false}>
+                    Open full setup instructions
+                  </Link>
+                </p>
+              </article>
+            );
+          })}
+        </div>
       </section>
     </DashboardShell>
   );

@@ -21,7 +21,7 @@ The current app is a deployed control plane with:
 
 The app is strong at orchestration and setup.
 
-The app is not yet a completed universal live social execution engine across every supported platform.
+The app is not yet a guaranteed universal live social execution engine across every supported platform. Provider approval, scopes, redirect URIs, and site UI changes still determine whether a given account succeeds live.
 
 ## What The AI Agent Can Truthfully Do Today
 
@@ -50,7 +50,7 @@ The AI agent must not claim that:
 - every cookie/session capture is fully live and automated
 - every DM, comment, publish, edit, and analytics flow is already operational against real platforms
 
-Today, many platform connectors are still scaffolded. The app will say that clearly through the readiness and execution status views.
+The codebase now includes both official-provider and session-execution paths across the supported platform set, but the agent must still treat each account as untrusted until credentials, scopes, and certification are complete.
 
 ## Core Screens
 
@@ -201,6 +201,20 @@ Use the platform-appropriate mode:
 - `session_auth` for session-first setups
 - `hybrid_auth` when both API and session layers are intended
 
+Default mode recommendations:
+
+- `session_auth`: Pinterest, Reddit, Medium, Substack, Quora
+- `hybrid_auth`: LinkedIn when non-posting workflows are needed, Meta/TikTok when you want both official and cookie-backed paths
+- `api_auth`: X unless you intentionally enable fallback, Bluesky, YouTube
+
+### Platform Policy Notes
+
+- `X`: use official auth first for posting, replies, metrics, and any official action that the X API can complete. Keep a cookie/session bundle ready only as a tightly controlled fallback. X explicitly treats browser automation and non-API automation as high-risk.
+- `LinkedIn`: use official LinkedIn auth for posting. Route comments, inbox, DMs, and other non-posting workflows through session execution if those workflows are needed.
+- `Reddit`: use `session_auth` as the main path for now. Keep the Reddit OAuth/API path as an optional later route, but the current operating stance is cookies first.
+- `Pinterest`: use `session_auth` as the main path for now. Only turn on the official Pinterest API path later if app approval and credentials are actually ready.
+- `Medium`, `Substack`, `Quora`: these are session-first. Assume cookies/session bundle import is part of normal onboarding.
+
 ### 6. Fill Required Fields
 
 The setup form renders the platform fields directly.
@@ -214,6 +228,7 @@ The agent should fill:
 - page or business IDs
 - capture mode
 - login hints or publication URLs
+- workflow override JSON when the default browser selectors or routes for a session-backed workflow need to be tuned for a specific account
 
 The readiness panel will immediately reflect what is still missing after save.
 
@@ -239,6 +254,12 @@ If readiness says session capture is needed:
 - capture the session
 - confirm session health is now acceptable
 
+For hybrid accounts:
+
+- complete official auth first
+- keep the session bundle attached to the same account as a fallback or non-API execution layer
+- prefer the official path unless the platform policy notes above say otherwise
+
 ### 10. Run Certification
 
 Only do this after:
@@ -259,6 +280,24 @@ The AI agent should not claim an account is truly live-ready unless:
 
 If execution is still `scaffolded`, keep the account conservative even if setup is complete.
 
+## Reddit Recommendation
+
+For Reddit, the AI agent should currently choose `session_auth`.
+
+Why:
+
+- the current operator verdict is that Reddit app setup is not worth blocking rollout on
+- cookie/session import gets the account moving faster
+- the API path can still be finished later if you decide to revisit classic Reddit OAuth
+
+Recommended Reddit operating policy:
+
+1. create the Reddit account in the app
+2. set it to `session_auth`
+3. import a Reddit session bundle in Session Vault
+4. certify the account
+5. only revisit the API path later if the classic OAuth route becomes worth the effort
+
 ## Platform Guidance
 
 ### API-First Platforms
@@ -268,14 +307,14 @@ If execution is still `scaffolded`, keep the account conservative even if setup 
 - Bluesky
 - YouTube
 - TikTok posting
-- Pinterest
 - Reddit core posting
 - Meta business surfaces where supported
 
-The agent should prefer API credentials and callback URLs first.
+The agent should prefer API credentials and callback URLs first except where the platform policy notes say session-first.
 
 ### Session-First Platforms
 
+- Pinterest
 - Medium
 - Substack
 - Quora
@@ -287,10 +326,9 @@ The agent should expect session capture to be part of setup.
 - Facebook
 - Instagram
 - TikTok
-- Reddit
-- Pinterest
+- LinkedIn
 
-The agent should assume API config first, with session config only where needed for unsupported flows.
+The agent should assume API config first for hybrid platforms unless the platform policy notes say the session path should be primary.
 
 ## How To Interpret Readiness
 

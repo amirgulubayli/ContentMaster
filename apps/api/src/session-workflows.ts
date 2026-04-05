@@ -158,6 +158,40 @@ const defaults: Record<
       composeSelector: "textarea, input",
       submitSelector: "button"
     }
+  },
+  x: {
+    publish_post: {
+      targetUrl: "https://x.com/compose/post",
+      composeSelector: "[data-testid='tweetTextarea_0'], div[role='textbox']",
+      submitSelector: "[data-testid='tweetButtonInline'], [data-testid='tweetButton']"
+    },
+    reply_comment: {
+      commentSelector: "[data-testid='tweetTextarea_0'], div[role='textbox']",
+      submitSelector: "[data-testid='tweetButtonInline'], [data-testid='tweetButton']"
+    },
+    send_dm: {
+      dmSelector: "[data-testid='dmComposerTextInput'], div[role='textbox']",
+      submitSelector: "[data-testid='dmComposerSendButton'], button"
+    },
+    engage: {
+      engageSelector: "[data-testid='like'], [data-testid='retweet']"
+    }
+  },
+  linkedin: {
+    reply_comment: {
+      targetUrl: "https://www.linkedin.com/feed/",
+      commentSelector: "div[contenteditable='true'], textarea",
+      submitSelector: "button"
+    },
+    send_dm: {
+      targetUrl: "https://www.linkedin.com/messaging/",
+      dmSelector: "div[contenteditable='true'], textarea",
+      submitSelector: "button"
+    },
+    engage: {
+      targetUrl: "https://www.linkedin.com/feed/",
+      engageSelector: "button[aria-pressed], button"
+    }
   }
 };
 

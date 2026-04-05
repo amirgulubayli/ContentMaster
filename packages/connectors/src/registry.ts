@@ -40,21 +40,29 @@ export const platformRegistry: Record<Platform, PlatformProfile> = {
   x: {
     platform: "x",
     defaultMode: "api_auth",
-    sessionFallback: false,
+    sessionFallback: true,
     requiresSessionAtLaunch: false,
-    dmSupport: "api",
-    notes: "Official API auth and publish/metrics execution are wired.",
-    features: ["publish_text", "reply_comment", "read_metrics"],
+    dmSupport: "hybrid",
+    notes: "Use official X auth first. Keep a session bundle ready only as a controlled fallback for workflows the API path cannot complete.",
+    features: ["publish_text", "reply_comment", "read_inbox", "reply_dm", "read_metrics"],
     liveExecutionImplemented: true
   },
   linkedin: {
     platform: "linkedin",
-    defaultMode: "api_auth",
-    sessionFallback: false,
+    defaultMode: "hybrid_auth",
+    sessionFallback: true,
     requiresSessionAtLaunch: false,
-    dmSupport: "none",
-    notes: "Approved scopes required. Official OAuth and posting path are wired. DM automation remains out of scope.",
-    features: ["publish_text", "publish_image", "publish_video", "read_metrics"],
+    dmSupport: "session",
+    notes: "Use official LinkedIn auth for posting. Route comments, inbox, DMs, and other non-posting workflows through session execution when needed.",
+    features: [
+      "publish_text",
+      "publish_image",
+      "publish_video",
+      "reply_comment",
+      "read_inbox",
+      "reply_dm",
+      "read_metrics"
+    ],
     liveExecutionImplemented: true
   },
   medium: {
@@ -95,11 +103,11 @@ export const platformRegistry: Record<Platform, PlatformProfile> = {
   },
   reddit: {
     platform: "reddit",
-    defaultMode: "api_auth",
+    defaultMode: "session_auth",
     sessionFallback: true,
-    requiresSessionAtLaunch: false,
-    dmSupport: "hybrid",
-    notes: "OAuth for core posting is wired, with session fallback available for UI-only workflows.",
+    requiresSessionAtLaunch: true,
+    dmSupport: "session",
+    notes: "Use session-backed execution as the main Reddit path for now. Keep the official OAuth/API path available as an optional later route if account app registration becomes worth finishing.",
     features: ["publish_text", "reply_comment", "read_inbox", "reply_dm", "read_metrics"],
     liveExecutionImplemented: true
   },
@@ -115,11 +123,11 @@ export const platformRegistry: Record<Platform, PlatformProfile> = {
   },
   pinterest: {
     platform: "pinterest",
-    defaultMode: "api_auth",
+    defaultMode: "session_auth",
     sessionFallback: true,
-    requiresSessionAtLaunch: false,
+    requiresSessionAtLaunch: true,
     dmSupport: "none",
-    notes: "Official API auth and publish paths are wired. Session fallback remains available for unsupported organic flows.",
+    notes: "Use session-backed execution as the main Pinterest path for now. Keep the official API available as an optional later path if app approval and credentials are ready.",
     features: ["publish_image", "read_metrics"],
     liveExecutionImplemented: true
   },
@@ -192,26 +200,40 @@ export const platformRegistry: Record<Platform, PlatformProfile> = {
 export const platformSetupBlueprints: Record<Platform, PlatformSetupBlueprint> = {
   x: {
     platform: "x",
-    supportedModes: ["api_auth"],
+    supportedModes: ["api_auth", "hybrid_auth"],
     apiFields: apiFields(
       { key: "clientId", label: "Client ID", kind: "text", required: true, help: "X app client ID." },
       { key: "clientSecret", label: "Client Secret", kind: "password", required: true, help: "X app client secret." },
       { key: "callbackUrl", label: "Callback URL", kind: "url", required: true, help: "Redirect URI configured in the X app." }
     ),
-    sessionFields: [],
-    notes: ["Official API is the intended production path.", "Session fallback is intentionally disabled.", "OAuth and provider execution are wired."],
+    sessionFields: sessionFields(
+      { key: "captureMode", label: "Capture Mode", kind: "select", required: false, help: "Only needed if hybrid fallback is enabled.", options: ["cookies_only", "bundle", "profile"] },
+      workflowOverridesField
+    ),
+    notes: [
+      "Official API is the primary production path.",
+      "Keep session fallback only as a controlled backup for workflows that the API path cannot complete.",
+      "X policy risk is higher for browser automation than for API use."
+    ],
     liveExecutionImplemented: true
   },
   linkedin: {
     platform: "linkedin",
-    supportedModes: ["api_auth"],
+    supportedModes: ["api_auth", "hybrid_auth"],
     apiFields: apiFields(
       { key: "clientId", label: "Client ID", kind: "text", required: true, help: "LinkedIn app client ID." },
       { key: "clientSecret", label: "Client Secret", kind: "password", required: true, help: "LinkedIn app client secret." },
       { key: "callbackUrl", label: "Callback URL", kind: "url", required: true, help: "LinkedIn redirect URI." }
     ),
-    sessionFields: [],
-    notes: ["Approved scopes are required for posting and analytics.", "OAuth and provider execution are wired."],
+    sessionFields: sessionFields(
+      { key: "captureMode", label: "Capture Mode", kind: "select", required: false, help: "Use if LinkedIn should also run non-posting workflows through cookies.", options: ["cookies_only", "bundle", "profile"] },
+      workflowOverridesField
+    ),
+    notes: [
+      "Use official auth for posting.",
+      "Use session fallback for comments, inbox, and other non-posting workflows when required.",
+      "Approved scopes are still required for the posting path."
+    ],
     liveExecutionImplemented: true
   },
   medium: {
@@ -252,17 +274,21 @@ export const platformSetupBlueprints: Record<Platform, PlatformSetupBlueprint> =
   },
   reddit: {
     platform: "reddit",
-    supportedModes: ["api_auth", "hybrid_auth"],
+    supportedModes: ["session_auth", "hybrid_auth", "api_auth"],
     apiFields: apiFields(
       { key: "clientId", label: "Client ID", kind: "text", required: true, help: "Reddit app client ID." },
       { key: "clientSecret", label: "Client Secret", kind: "password", required: true, help: "Reddit app client secret." },
       { key: "callbackUrl", label: "Callback URL", kind: "url", required: true, help: "Reddit redirect URI." }
     ),
     sessionFields: sessionFields(
-      { key: "captureMode", label: "Capture Mode", kind: "select", required: false, help: "Only needed if hybrid mode is used.", options: ["cookies_only", "bundle", "profile"] },
+      { key: "captureMode", label: "Capture Mode", kind: "select", required: true, help: "Use session mode as the main Reddit path for now.", options: ["cookies_only", "bundle", "profile"] },
       workflowOverridesField
     ),
-    notes: ["API-first for core posting.", "Hybrid mode can use imported bundles plus browser execution for UI-only flows."],
+    notes: [
+      "Use session-backed execution as the default Reddit path for now.",
+      "Hybrid mode can combine Reddit OAuth later with cookies kept as fallback.",
+      "API auth remains available later if Reddit app registration becomes worth finishing."
+    ],
     liveExecutionImplemented: true
   },
   bluesky: {
@@ -278,17 +304,21 @@ export const platformSetupBlueprints: Record<Platform, PlatformSetupBlueprint> =
   },
   pinterest: {
     platform: "pinterest",
-    supportedModes: ["api_auth", "hybrid_auth"],
+    supportedModes: ["session_auth", "api_auth", "hybrid_auth"],
     apiFields: apiFields(
       { key: "appId", label: "App ID", kind: "text", required: true, help: "Pinterest app ID." },
       { key: "appSecret", label: "App Secret", kind: "password", required: true, help: "Pinterest app secret." },
       { key: "callbackUrl", label: "Callback URL", kind: "url", required: true, help: "Pinterest redirect URI." }
     ),
     sessionFields: sessionFields(
-      { key: "captureMode", label: "Capture Mode", kind: "select", required: false, help: "Use only if hybrid mode is needed.", options: ["cookies_only", "bundle", "profile"] },
+      { key: "captureMode", label: "Capture Mode", kind: "select", required: true, help: "Use session mode as the main Pinterest path for now.", options: ["cookies_only", "bundle", "profile"] },
       workflowOverridesField
     ),
-    notes: ["API-first for organic publishing.", "Hybrid mode can use imported bundles plus browser execution for unsupported flows."],
+    notes: [
+      "Use session-backed execution as the default Pinterest path for now.",
+      "API auth is still available later if Pinterest app approval and credentials are in place.",
+      "Hybrid mode can combine both if you want API later with cookies kept as fallback."
+    ],
     liveExecutionImplemented: true
   },
   facebook: {
