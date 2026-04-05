@@ -1,0 +1,15 @@
+[Unit]
+Description=Content Empire Docker Compose Stack
+Requires=docker.service
+After=docker.service
+
+[Service]
+Type=oneshot
+WorkingDirectory=/opt/content-empire
+RemainAfterExit=yes
+ExecStart=/usr/bin/docker compose -f infra/docker/docker-compose.yml up -d
+ExecStop=/usr/bin/docker compose -f infra/docker/docker-compose.yml down
+TimeoutStartSec=0
+
+[Install]
+WantedBy=multi-user.target

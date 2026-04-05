@@ -1,0 +1,14 @@
+node_modules
+.next
+dist
+coverage
+.turbo
+.env
+.env.local
+*.log
+apps\web\.next
+packages\db\generated
+apps\api\dist
+apps\worker\dist
+apps\session-runner\dist
+apps\renderer\dist

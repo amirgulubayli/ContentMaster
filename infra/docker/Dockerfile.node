@@ -1,0 +1,23 @@
+FROM node:20-alpine AS base
+WORKDIR /app
+
+FROM base AS deps
+COPY package.json tsconfig.base.json ./
+COPY apps ./apps
+COPY packages ./packages
+RUN npm install
+
+FROM deps AS build
+ARG WORKSPACE
+RUN npm run build --workspace ${WORKSPACE}
+
+FROM node:20-alpine AS runtime
+WORKDIR /app
+ARG WORKSPACE
+ENV NODE_ENV=production
+COPY --from=deps /app/node_modules ./node_modules
+COPY --from=deps /app/package.json ./package.json
+COPY --from=deps /app/apps ./apps
+COPY --from=deps /app/packages ./packages
+COPY --from=build /app/apps ./apps
+CMD ["sh", "-c", "npm run start --workspace ${WORKSPACE}"]

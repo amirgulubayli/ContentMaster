@@ -1,0 +1,19 @@
+{
+  "name": "@content-empire/web",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "next dev",
+    "build": "next build",
+    "start": "next start",
+    "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {
+    "@content-empire/connectors": "0.1.0",
+    "@content-empire/shared": "0.1.0",
+    "next": "^16.0.0",
+    "react": "^19.1.1",
+    "react-dom": "^19.1.1"
+  }
+}

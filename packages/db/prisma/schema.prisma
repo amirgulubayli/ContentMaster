@@ -1,0 +1,204 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+enum ProjectStatus {
+  active
+  paused
+}
+
+enum ConnectorMode {
+  api_auth
+  session_auth
+  hybrid_auth
+}
+
+enum AutomationMode {
+  manual_review
+  assisted_auto
+  full_auto
+}
+
+enum SessionHealth {
+  healthy
+  warning
+  expired
+  revoked
+}
+
+enum AuditStatus {
+  success
+  warning
+  failed
+}
+
+enum QueueType {
+  publish
+  edit
+  comment_reply
+  dm_reply
+  session_refresh
+}
+
+model Project {
+  id                       String    @id @default(cuid())
+  slug                     String    @unique
+  name                     String
+  description              String
+  voice                    String
+  status                   ProjectStatus
+  dailyOptimizationEnabled Boolean   @default(true)
+  createdAt                DateTime  @default(now())
+  updatedAt                DateTime  @updatedAt
+  accounts                 PlatformAccount[]
+  contents                 ContentItem[]
+}
+
+model PlatformAccount {
+  id                String          @id @default(cuid())
+  projectId         String
+  platform          String
+  handle            String
+  displayName       String
+  connectorMode     ConnectorMode
+  automationMode    AutomationMode
+  sessionHealth     SessionHealth
+  lastAuthRefreshAt DateTime?
+  lastPostAt        DateTime?
+  sessionRequired   Boolean         @default(false)
+  openClawEnabled   Boolean         @default(true)
+  createdAt         DateTime        @default(now())
+  updatedAt         DateTime        @updatedAt
+  project           Project         @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  features          AccountFeature[]
+  credentials       AccountCredential[]
+  sessionVault      SessionVaultRecord[]
+  comments          CommentThread[]
+  dmThreads         DmThread[]
+  publishJobs       PublishJob[]
+  alerts            Alert[]
+}
+
+model AccountFeature {
+  id        String          @id @default(cuid())
+  accountId String
+  feature   String
+  enabled   Boolean         @default(true)
+  account   PlatformAccount @relation(fields: [accountId], references: [id], onDelete: Cascade)
+
+  @@unique([accountId, feature])
+}
+
+model AccountCredential {
+  id          String          @id @default(cuid())
+  accountId   String
+  secretType  String
+  secretValue String
+  createdAt   DateTime        @default(now())
+  updatedAt   DateTime        @updatedAt
+  account     PlatformAccount @relation(fields: [accountId], references: [id], onDelete: Cascade)
+}
+
+model SessionVaultRecord {
+  id                   String          @id @default(cuid())
+  accountId            String
+  profileObjectKey     String?
+  encryptedBundle      String
+  version              Int             @default(1)
+  health               SessionHealth
+  stabilityScore       Int             @default(0)
+  lastValidatedAt      DateTime?
+  revokedAt            DateTime?
+  expiresAt            DateTime?
+  createdAt            DateTime        @default(now())
+  updatedAt            DateTime        @updatedAt
+  account              PlatformAccount @relation(fields: [accountId], references: [id], onDelete: Cascade)
+}
+
+model ContentItem {
+  id            String       @id @default(cuid())
+  projectId     String
+  title         String
+  body          String
+  contentType   String
+  source        String
+  status        String
+  createdAt     DateTime     @default(now())
+  updatedAt     DateTime     @updatedAt
+  project       Project      @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  variants      ContentVariant[]
+}
+
+model ContentVariant {
+  id            String      @id @default(cuid())
+  contentItemId String
+  platform      String
+  caption       String
+  mediaType     String
+  metadata      Json
+  createdAt     DateTime    @default(now())
+  updatedAt     DateTime    @updatedAt
+  contentItem   ContentItem @relation(fields: [contentItemId], references: [id], onDelete: Cascade)
+}
+
+model PublishJob {
+  id            String          @id @default(cuid())
+  accountId     String
+  queueType     QueueType
+  status        String
+  scheduledFor  DateTime
+  owner         String
+  payload       Json
+  createdAt     DateTime        @default(now())
+  updatedAt     DateTime        @updatedAt
+  account       PlatformAccount @relation(fields: [accountId], references: [id], onDelete: Cascade)
+}
+
+model CommentThread {
+  id            String          @id @default(cuid())
+  accountId     String
+  platformRef   String
+  authorHandle  String
+  body          String
+  status        String
+  createdAt     DateTime        @default(now())
+  updatedAt     DateTime        @updatedAt
+  account       PlatformAccount @relation(fields: [accountId], references: [id], onDelete: Cascade)
+}
+
+model DmThread {
+  id            String          @id @default(cuid())
+  accountId     String
+  platformRef   String
+  counterpart   String
+  lastMessage   String
+  status        String
+  createdAt     DateTime        @default(now())
+  updatedAt     DateTime        @updatedAt
+  account       PlatformAccount @relation(fields: [accountId], references: [id], onDelete: Cascade)
+}
+
+model Alert {
+  id          String          @id @default(cuid())
+  accountId   String?
+  severity    String
+  title       String
+  message     String
+  createdAt   DateTime        @default(now())
+  account     PlatformAccount? @relation(fields: [accountId], references: [id], onDelete: SetNull)
+}
+
+model AuditEvent {
+  id          String      @id @default(cuid())
+  actor       String
+  action      String
+  subject     String
+  status      AuditStatus
+  detail      String
+  createdAt   DateTime    @default(now())
+}

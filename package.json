@@ -1,0 +1,29 @@
+{
+  "name": "content-empire",
+  "version": "0.1.0",
+  "private": true,
+  "workspaces": [
+    "apps/*",
+    "packages/*"
+  ],
+  "scripts": {
+    "dev:web": "npm run dev --workspace @content-empire/web",
+    "dev:api": "npm run dev --workspace @content-empire/api",
+    "dev:worker": "npm run dev --workspace @content-empire/worker",
+    "dev:session": "npm run dev --workspace @content-empire/session-runner",
+    "dev:renderer": "npm run dev --workspace @content-empire/renderer",
+    "build": "npm run build --workspaces --if-present",
+    "typecheck": "npm run typecheck --workspaces --if-present",
+    "lint": "npm run lint --workspaces --if-present",
+    "db:generate": "npm run db:generate --workspace @content-empire/db",
+    "db:migrate": "npm run db:migrate --workspace @content-empire/db",
+    "env:validate": "node scripts/validate-env.mjs",
+    "secrets:generate": "node scripts/generate-secrets.mjs"
+  },
+  "devDependencies": {
+    "@types/node": "^24.6.0",
+    "@types/react": "^19.2.14",
+    "@types/react-dom": "^19.2.3",
+    "typescript": "^5.9.3"
+  }
+}
