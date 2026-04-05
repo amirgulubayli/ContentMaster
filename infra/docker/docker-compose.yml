@@ -160,7 +160,7 @@ services:
     volumes:
       - ../nginx/default.conf:/etc/nginx/conf.d/default.conf:ro
     ports:
-      - "127.0.0.1:8088:80"
+      - "${APP_BIND_IP:-127.0.0.1}:8088:80"
     networks:
       - content_empire
 

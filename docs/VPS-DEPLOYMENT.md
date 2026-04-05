@@ -58,8 +58,9 @@ nano .env
 Minimum values to set correctly:
 
 - `NODE_ENV=production`
-- `APP_URL=http://100.x.x.x:8088` or your Tailscale/reverse-proxy URL
+- `APP_URL=http://100.111.98.27:8088` or your Tailscale/reverse-proxy URL
 - `API_URL=http://api:4000` inside Docker, or the internal URL you want the web container to use
+- `APP_BIND_IP=100.111.98.27`
 - `DATABASE_URL=postgresql://contentempire:contentempire@postgres:5432/contentempire?schema=public`
 - `REDIS_URL=redis://redis:6379`
 - `MINIO_ENDPOINT=minio`
