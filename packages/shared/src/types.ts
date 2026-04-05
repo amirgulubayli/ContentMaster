@@ -62,6 +62,7 @@ export const accountSchema = z.object({
   connectorMode: connectorModeSchema,
   automationMode: automationModeSchema,
   sessionHealth: sessionHealthSchema,
+  authStatus: z.enum(["not_started", "configured", "certified"]),
   features: z.array(featureKeySchema),
   lastAuthRefreshAt: z.string(),
   lastPostAt: z.string().nullable(),
@@ -70,6 +71,59 @@ export const accountSchema = z.object({
 });
 
 export type Account = z.infer<typeof accountSchema>;
+
+export const authFieldSchema = z.object({
+  key: z.string(),
+  label: z.string(),
+  kind: z.enum(["text", "password", "url", "textarea", "select"]),
+  required: z.boolean(),
+  help: z.string(),
+  options: z.array(z.string()).optional()
+});
+
+export type AuthField = z.infer<typeof authFieldSchema>;
+
+export const platformSetupBlueprintSchema = z.object({
+  platform: platformSchema,
+  supportedModes: z.array(connectorModeSchema),
+  apiFields: z.array(authFieldSchema),
+  sessionFields: z.array(authFieldSchema),
+  notes: z.array(z.string()),
+  liveExecutionImplemented: z.boolean()
+});
+
+export type PlatformSetupBlueprint = z.infer<typeof platformSetupBlueprintSchema>;
+
+export const accountSetupStateSchema = z.object({
+  accountId: z.string(),
+  connectorMode: connectorModeSchema,
+  automationMode: automationModeSchema,
+  authStatus: z.enum(["not_started", "configured", "certified"]),
+  openClawEnabled: z.boolean(),
+  apiConfig: z.record(z.string(), z.string()),
+  sessionConfig: z.record(z.string(), z.string()),
+  notes: z.string(),
+  updatedAt: z.string()
+});
+
+export type AccountSetupState = z.infer<typeof accountSetupStateSchema>;
+
+export const accountSetupReadinessSchema = z.object({
+  requiredApiFields: z.array(z.string()),
+  requiredSessionFields: z.array(z.string()),
+  missingApiFields: z.array(z.string()),
+  missingSessionFields: z.array(z.string()),
+  configComplete: z.boolean(),
+  sessionCaptureNeeded: z.boolean(),
+  sessionCaptured: z.boolean(),
+  canCertify: z.boolean(),
+  canEnableOpenClaw: z.boolean(),
+  liveExecutionImplemented: z.boolean(),
+  blockers: z.array(z.string()),
+  nextSteps: z.array(z.string())
+});
+
+export type AccountSetupReadiness = z.infer<typeof accountSetupReadinessSchema>;
 
 export const auditEventSchema = z.object({
   id: z.string(),

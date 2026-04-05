@@ -1,20 +1,321 @@
 import cors from "@fastify/cors";
-import { connectorFactory, getPlatformProfile, platformRegistry } from "@content-empire/connectors";
-import { type DashboardSnapshot, decryptJson } from "@content-empire/shared";
+import {
+  connectorFactory,
+  getAccountSetupReadiness,
+  getPlatformProfile,
+  getPlatformSetupBlueprint,
+  platformRegistry,
+  platformSetupBlueprints
+} from "@content-empire/connectors";
+import { type DashboardSnapshot, decryptJson, encryptJson } from "@content-empire/shared";
 import Fastify from "fastify";
+import {
+  buildGenericRedirectUri,
+  buildGoogleAuthUrl,
+  buildLinkedInAuthUrl,
+  buildMetaAuthUrl,
+  buildMetaRedirectUri,
+  buildPinterestAuthUrl,
+  buildPkceVerifier,
+  buildRedditAuthUrl,
+  buildTikTokAuthUrl,
+  buildTikTokRedirectUri,
+  buildXAuthUrl,
+  createOauthState,
+  exchangeGoogleCode,
+  exchangeLinkedInCode,
+  exchangeMetaCode,
+  exchangeMetaLongLivedToken,
+  exchangePinterestCode,
+  exchangeRedditCode,
+  exchangeTikTokCode,
+  exchangeXCode,
+  fetchGoogleChannel,
+  fetchLinkedInProfile,
+  fetchMetaBusinessContext,
+  fetchPinterestMe,
+  fetchRedditMe,
+  fetchTikTokCreatorInfo,
+  refreshGoogleToken,
+  refreshPinterestToken,
+  refreshRedditToken,
+  refreshTikTokToken,
+  refreshXToken
+} from "./platform-auth.js";
+import {
+  createBlueskySession,
+  fetchPinterestAnalytics,
+  fetchRedditInbox,
+  fetchMetaMetrics,
+  fetchTikTokCreatorAnalytics,
+  fetchXMetrics,
+  fetchYoutubeAnalytics,
+  publishBlueskyPost,
+  publishLinkedInPost,
+  publishPinterestPin,
+  publishRedditPost,
+  publishXPost,
+  publishFacebookContent,
+  publishInstagramContent,
+  publishTikTokContent,
+  replyRedditComment,
+  replyYoutubeComment,
+  replyMetaComment,
+  sendMetaDm,
+  uploadYoutubeVideo
+} from "./platform-execution.js";
 import {
   captureSessionSchema,
   certifyAccountSchema,
+  connectAccountSchema,
   createAccountSchema,
   createProjectSchema,
+  importSessionBundleSchema,
+  updateAccountSetupSchema,
   openClawActionSchema,
   queueActionSchema
 } from "./schemas.js";
+import { buildSessionWorkflow } from "./session-workflows.js";
 import { appendAudit, state } from "./state.js";
 
 const app = Fastify({
   logger: true
 });
+
+function getCredentialRecord(accountId: string) {
+  return state.credentials[accountId];
+}
+
+function getTokenSecret() {
+  return process.env.SESSION_ENCRYPTION_KEY ?? "development-session-key";
+}
+
+function getDecryptedTokenSet(accountId: string) {
+  const record = getCredentialRecord(accountId);
+  if (!record) {
+    return null;
+  }
+
+  return decryptJson<Record<string, string | null>>(record.encryptedTokenSet, getTokenSecret());
+}
+
+async function executeSessionAction(accountId: string, platform: string, action: string, payload: Record<string, unknown>) {
+  const sessionRecord = state.sessions[accountId];
+  if (!sessionRecord) {
+    return null;
+  }
+
+  const sessionBundle = decryptJson<{
+    cookies: Array<{
+      name: string;
+      value: string;
+      domain: string;
+      path: string;
+      secure: boolean;
+      httpOnly: boolean;
+    }>;
+    localStorage: Record<string, string>;
+    sessionStorage: Record<string, string>;
+    csrfTokens: Record<string, string>;
+    fingerprint: {
+      userAgent: string;
+      viewport: string;
+      locale: string;
+    };
+    profileObjectKey: string | null;
+  }>(sessionRecord.encryptedBundle, getTokenSecret());
+  const workflow = buildSessionWorkflow(
+    platform,
+    action as "publish_post" | "edit_post" | "reply_comment" | "send_dm" | "engage" | "refresh_session",
+    payload,
+    state.setup[accountId]?.sessionConfig ?? {}
+  );
+
+  const response = await fetch(`${process.env.SESSION_RUNNER_URL ?? "http://session-runner:4200"}/execute`, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json"
+    },
+    body: JSON.stringify({
+      accountId,
+      platform,
+      action,
+      sessionBundle,
+      payload: {
+        ...payload,
+        ...workflow
+      }
+    })
+  });
+
+  if (!response.ok) {
+    throw new Error(await response.text());
+  }
+
+  return response.json();
+}
+
+async function executePlatformAction(accountId: string, platform: string, action: string, payload: Record<string, unknown>) {
+  const record = getCredentialRecord(accountId);
+  const tokenSet = getDecryptedTokenSet(accountId);
+
+  if (!record || !tokenSet?.accessToken) {
+    return null;
+  }
+
+  if (platform === "facebook") {
+    if (action === "publish_post") {
+      return publishFacebookContent(String(tokenSet.pageAccessToken ?? tokenSet.accessToken), {
+        pageId: String(tokenSet.pageId ?? record.metadata.pageId ?? ""),
+        message: typeof payload.message === "string" ? payload.message : undefined,
+        caption: typeof payload.caption === "string" ? payload.caption : undefined,
+        imageUrl: typeof payload.imageUrl === "string" ? payload.imageUrl : undefined,
+        videoUrl: typeof payload.videoUrl === "string" ? payload.videoUrl : undefined
+      });
+    }
+
+    if (action === "reply_comment" && typeof payload.commentId === "string" && typeof payload.message === "string") {
+      return replyMetaComment(String(tokenSet.pageAccessToken ?? tokenSet.accessToken), payload.commentId, payload.message);
+    }
+
+    if (action === "send_dm" && typeof payload.recipientId === "string" && typeof payload.message === "string") {
+      return sendMetaDm(String(tokenSet.pageAccessToken ?? tokenSet.accessToken), payload.recipientId, payload.message);
+    }
+
+    if (action === "analyze_performance") {
+      return fetchMetaMetrics(
+        String(tokenSet.pageAccessToken ?? tokenSet.accessToken),
+        String(tokenSet.pageId ?? record.metadata.pageId ?? ""),
+        Array.isArray(payload.metrics) ? payload.metrics.map(String) : ["page_impressions", "page_post_engagements"]
+      );
+    }
+  }
+
+  if (platform === "instagram") {
+    if (action === "publish_post") {
+      return publishInstagramContent(String(tokenSet.accessToken), {
+        instagramBusinessId: String(tokenSet.instagramBusinessId ?? record.metadata.instagramBusinessId ?? ""),
+        caption: typeof payload.caption === "string" ? payload.caption : typeof payload.message === "string" ? payload.message : undefined,
+        imageUrl: typeof payload.imageUrl === "string" ? payload.imageUrl : undefined,
+        videoUrl: typeof payload.videoUrl === "string" ? payload.videoUrl : undefined,
+        mediaType: typeof payload.videoUrl === "string" ? "REELS" : "IMAGE"
+      });
+    }
+
+    if (action === "reply_comment" && typeof payload.commentId === "string" && typeof payload.message === "string") {
+      return replyMetaComment(String(tokenSet.accessToken), payload.commentId, payload.message);
+    }
+
+    if (action === "analyze_performance") {
+      return fetchMetaMetrics(
+        String(tokenSet.accessToken),
+        String(tokenSet.instagramBusinessId ?? record.metadata.instagramBusinessId ?? ""),
+        Array.isArray(payload.metrics) ? payload.metrics.map(String) : ["impressions", "reach", "profile_views"]
+      );
+    }
+  }
+
+  if (platform === "tiktok") {
+    if (action === "publish_post") {
+      return publishTikTokContent(String(tokenSet.accessToken), {
+        postMode: typeof payload.postMode === "string" ? (payload.postMode as "DIRECT_POST" | "MEDIA_UPLOAD") : undefined,
+        postInfo: typeof payload.postInfo === "object" && payload.postInfo ? (payload.postInfo as Record<string, unknown>) : undefined,
+        sourceInfo: typeof payload.sourceInfo === "object" && payload.sourceInfo ? (payload.sourceInfo as Record<string, unknown>) : undefined
+      });
+    }
+
+    if (action === "analyze_performance") {
+      return fetchTikTokCreatorAnalytics(String(tokenSet.accessToken));
+    }
+  }
+
+  if (platform === "x") {
+    if (action === "publish_post") {
+      return publishXPost(String(tokenSet.accessToken), {
+        text: typeof payload.text === "string" ? payload.text : typeof payload.message === "string" ? payload.message : undefined
+      });
+    }
+
+    if (action === "analyze_performance" && typeof payload.postId === "string") {
+      return fetchXMetrics(String(tokenSet.accessToken), payload.postId);
+    }
+  }
+
+  if (platform === "linkedin") {
+    if (action === "publish_post") {
+      return publishLinkedInPost(
+        String(tokenSet.accessToken),
+        String(tokenSet.authorUrn ?? record.metadata.authorUrn ?? ""),
+        {
+          text: typeof payload.text === "string" ? payload.text : typeof payload.message === "string" ? payload.message : undefined
+        }
+      );
+    }
+  }
+
+  if (platform === "reddit") {
+    if (action === "publish_post") {
+      return publishRedditPost(String(tokenSet.accessToken), {
+        title: typeof payload.title === "string" ? payload.title : undefined,
+        text: typeof payload.text === "string" ? payload.text : typeof payload.message === "string" ? payload.message : undefined,
+        url: typeof payload.url === "string" ? payload.url : undefined,
+        community: typeof payload.community === "string" ? payload.community : undefined
+      });
+    }
+
+    if (action === "reply_comment" && typeof payload.parentId === "string" && typeof payload.message === "string") {
+      return replyRedditComment(String(tokenSet.accessToken), payload.parentId, payload.message);
+    }
+
+    if ((action === "send_dm" || action === "analyze_performance") && tokenSet.accessToken) {
+      return fetchRedditInbox(String(tokenSet.accessToken));
+    }
+  }
+
+  if (platform === "bluesky") {
+    if (action === "publish_post") {
+      return publishBlueskyPost(String(tokenSet.accessJwt ?? tokenSet.accessToken), String(tokenSet.did ?? record.externalAccountId ?? ""), {
+        text: typeof payload.text === "string" ? payload.text : typeof payload.message === "string" ? payload.message : undefined
+      });
+    }
+  }
+
+  if (platform === "pinterest") {
+    if (action === "publish_post") {
+      return publishPinterestPin(String(tokenSet.accessToken), {
+        boardId: typeof payload.boardId === "string" ? payload.boardId : record.metadata.boardId,
+        title: typeof payload.title === "string" ? payload.title : undefined,
+        text: typeof payload.text === "string" ? payload.text : typeof payload.message === "string" ? payload.message : undefined,
+        url: typeof payload.url === "string" ? payload.url : undefined,
+        imageUrl: typeof payload.imageUrl === "string" ? payload.imageUrl : undefined,
+        mediaSource: typeof payload.mediaSource === "object" && payload.mediaSource ? (payload.mediaSource as Record<string, unknown>) : undefined
+      });
+    }
+
+    if (action === "analyze_performance" && typeof payload.pinId === "string") {
+      return fetchPinterestAnalytics(String(tokenSet.accessToken), payload.pinId);
+    }
+  }
+
+  if (platform === "youtube") {
+    if (action === "publish_post") {
+      return uploadYoutubeVideo(String(tokenSet.accessToken), {
+        title: typeof payload.title === "string" ? payload.title : undefined,
+        text: typeof payload.text === "string" ? payload.text : typeof payload.message === "string" ? payload.message : undefined
+      });
+    }
+
+    if (action === "reply_comment" && typeof payload.parentId === "string" && typeof payload.message === "string") {
+      return replyYoutubeComment(String(tokenSet.accessToken), payload.parentId, payload.message);
+    }
+
+    if (action === "analyze_performance") {
+      return fetchYoutubeAnalytics(String(tokenSet.accessToken), String(tokenSet.channelId ?? record.externalAccountId ?? ""));
+    }
+  }
+
+  return null;
+}
 
 await app.register(cors, {
   origin: true
@@ -77,6 +378,7 @@ app.post("/api/accounts", async (request, reply) => {
     connectorMode: parsed.data.connectorMode ?? profile.defaultMode,
     automationMode: parsed.data.automationMode,
     sessionHealth: profile.requiresSessionAtLaunch ? ("warning" as const) : ("healthy" as const),
+    authStatus: "not_started" as const,
     features: profile.features,
     lastAuthRefreshAt: new Date().toISOString(),
     lastPostAt: null,
@@ -85,10 +387,22 @@ app.post("/api/accounts", async (request, reply) => {
   };
 
   state.accounts.push(account);
+  state.setup[account.id] = {
+    accountId: account.id,
+    connectorMode: account.connectorMode,
+    automationMode: account.automationMode,
+    authStatus: "not_started",
+    openClawEnabled: false,
+    apiConfig: {},
+    sessionConfig: {},
+    notes: "",
+    updatedAt: new Date().toISOString()
+  };
   return account;
 });
 
 app.get("/api/platforms", async () => Object.values(platformRegistry));
+app.get("/api/platform-setup", async () => Object.values(platformSetupBlueprints));
 
 app.get("/api/accounts/:accountId/profile", async (request, reply) => {
   const params = request.params as { accountId: string };
@@ -99,30 +413,933 @@ app.get("/api/accounts/:accountId/profile", async (request, reply) => {
     return { error: "Account not found" };
   }
 
+  const profile = getPlatformProfile(account.platform);
+  const blueprint = getPlatformSetupBlueprint(account.platform);
+  const setup =
+    state.setup[account.id] ??
+    ({
+      accountId: account.id,
+      connectorMode: account.connectorMode,
+      automationMode: account.automationMode,
+      authStatus: account.authStatus,
+      openClawEnabled: account.openClawEnabled,
+      apiConfig: {},
+      sessionConfig: {},
+      notes: "",
+      updatedAt: new Date().toISOString()
+    } as const);
+
   return {
     account,
-    profile: getPlatformProfile(account.platform)
+    profile,
+    blueprint,
+    setup,
+    readiness: getAccountSetupReadiness(account, setup, profile, blueprint),
+    authConnection: (() => {
+      const credential = state.credentials[account.id];
+      if (!credential) {
+        return null;
+      }
+
+      return {
+        provider: credential.provider,
+        scopes: credential.scopes,
+        expiresAt: credential.expiresAt,
+        refreshExpiresAt: credential.refreshExpiresAt,
+        updatedAt: credential.updatedAt,
+        externalAccountId: credential.externalAccountId,
+        externalUsername: credential.externalUsername,
+        metadata: credential.metadata
+      };
+    })()
   };
+});
+
+app.get("/api/auth/:platform/start", async (request, reply) => {
+  const params = request.params as { platform: string };
+  const query = request.query as { accountId?: string };
+
+  if (!query.accountId) {
+    reply.code(400);
+    return { error: "accountId is required" };
+  }
+
+  const account = state.accounts.find((item) => item.id === query.accountId);
+  if (!account) {
+    reply.code(404);
+    return { error: "Account not found" };
+  }
+
+  const oauthState = createOauthState();
+
+  if (params.platform === "meta" && !["facebook", "instagram"].includes(account.platform)) {
+    reply.code(400);
+    return { error: "Meta OAuth only applies to Facebook and Instagram accounts." };
+  }
+
+  if (params.platform === "tiktok" && account.platform !== "tiktok") {
+    reply.code(400);
+    return { error: "TikTok OAuth only applies to TikTok accounts." };
+  }
+
+  if (params.platform === "x" && account.platform !== "x") {
+    reply.code(400);
+    return { error: "X OAuth only applies to X accounts." };
+  }
+
+  if (params.platform === "linkedin" && account.platform !== "linkedin") {
+    reply.code(400);
+    return { error: "LinkedIn OAuth only applies to LinkedIn accounts." };
+  }
+
+  if (params.platform === "reddit" && account.platform !== "reddit") {
+    reply.code(400);
+    return { error: "Reddit OAuth only applies to Reddit accounts." };
+  }
+
+  if (params.platform === "pinterest" && account.platform !== "pinterest") {
+    reply.code(400);
+    return { error: "Pinterest OAuth only applies to Pinterest accounts." };
+  }
+
+  if (params.platform === "google" && account.platform !== "youtube") {
+    reply.code(400);
+    return { error: "Google OAuth only applies to YouTube accounts." };
+  }
+
+  state.oauthStates[oauthState] = {
+    accountId: account.id,
+    provider:
+      params.platform === "meta"
+        ? "meta"
+        : params.platform === "tiktok"
+          ? "tiktok"
+          : params.platform === "google"
+            ? "google"
+            : (params.platform as "x" | "linkedin" | "reddit" | "pinterest"),
+    createdAt: new Date().toISOString()
+  };
+
+  if (params.platform === "meta") {
+    const authUrl = buildMetaAuthUrl();
+    authUrl.searchParams.set("client_id", process.env.META_APP_ID ?? "");
+    authUrl.searchParams.set("redirect_uri", buildMetaRedirectUri());
+    authUrl.searchParams.set("state", oauthState);
+    authUrl.searchParams.set(
+      "scope",
+      [
+        "pages_show_list",
+        "pages_read_engagement",
+        "pages_manage_posts",
+        "pages_manage_metadata",
+        "pages_messaging",
+        "instagram_basic",
+        "instagram_content_publish",
+        "instagram_manage_comments",
+        "instagram_manage_messages",
+        "business_management"
+      ].join(",")
+    );
+    return reply.redirect(authUrl.toString());
+  }
+
+  const authUrl = buildTikTokAuthUrl();
+  if (params.platform === "tiktok") {
+    authUrl.searchParams.set("client_key", process.env.TIKTOK_CLIENT_KEY ?? "");
+    authUrl.searchParams.set("redirect_uri", buildTikTokRedirectUri());
+    authUrl.searchParams.set("response_type", "code");
+    authUrl.searchParams.set("scope", "user.info.basic,video.publish,video.upload,video.list");
+    authUrl.searchParams.set("state", oauthState);
+    return reply.redirect(authUrl.toString());
+  }
+
+  if (params.platform === "x") {
+    const codeVerifier = buildPkceVerifier();
+    state.oauthStates[oauthState].codeVerifier = codeVerifier;
+    const xUrl = buildXAuthUrl();
+    xUrl.searchParams.set("response_type", "code");
+    xUrl.searchParams.set("client_id", process.env.X_CLIENT_ID ?? "");
+    xUrl.searchParams.set("redirect_uri", buildGenericRedirectUri("x"));
+    xUrl.searchParams.set("scope", "tweet.read tweet.write users.read offline.access");
+    xUrl.searchParams.set("state", oauthState);
+    xUrl.searchParams.set("code_challenge", codeVerifier);
+    xUrl.searchParams.set("code_challenge_method", "plain");
+    return reply.redirect(xUrl.toString());
+  }
+
+  if (params.platform === "linkedin") {
+    const linkedInUrl = buildLinkedInAuthUrl();
+    linkedInUrl.searchParams.set("response_type", "code");
+    linkedInUrl.searchParams.set("client_id", process.env.LINKEDIN_CLIENT_ID ?? "");
+    linkedInUrl.searchParams.set("redirect_uri", buildGenericRedirectUri("linkedin"));
+    linkedInUrl.searchParams.set("scope", "openid profile email w_member_social");
+    linkedInUrl.searchParams.set("state", oauthState);
+    return reply.redirect(linkedInUrl.toString());
+  }
+
+  if (params.platform === "reddit") {
+    const redditUrl = buildRedditAuthUrl();
+    redditUrl.searchParams.set("client_id", process.env.REDDIT_CLIENT_ID ?? "");
+    redditUrl.searchParams.set("response_type", "code");
+    redditUrl.searchParams.set("state", oauthState);
+    redditUrl.searchParams.set("redirect_uri", buildGenericRedirectUri("reddit"));
+    redditUrl.searchParams.set("duration", "permanent");
+    redditUrl.searchParams.set("scope", "identity submit edit privatemessages read");
+    return reply.redirect(redditUrl.toString());
+  }
+
+  if (params.platform === "pinterest") {
+    const pinterestUrl = buildPinterestAuthUrl();
+    pinterestUrl.searchParams.set("client_id", process.env.PINTEREST_APP_ID ?? "");
+    pinterestUrl.searchParams.set("redirect_uri", buildGenericRedirectUri("pinterest"));
+    pinterestUrl.searchParams.set("response_type", "code");
+    pinterestUrl.searchParams.set("scope", "boards:read,pins:read,pins:write,user_accounts:read");
+    pinterestUrl.searchParams.set("state", oauthState);
+    return reply.redirect(pinterestUrl.toString());
+  }
+
+  const googleUrl = buildGoogleAuthUrl();
+  googleUrl.searchParams.set("client_id", process.env.GOOGLE_CLIENT_ID ?? "");
+  googleUrl.searchParams.set("redirect_uri", buildGenericRedirectUri("google"));
+  googleUrl.searchParams.set("response_type", "code");
+  googleUrl.searchParams.set("scope", "https://www.googleapis.com/auth/youtube https://www.googleapis.com/auth/youtube.force-ssl");
+  googleUrl.searchParams.set("access_type", "offline");
+  googleUrl.searchParams.set("prompt", "consent");
+  googleUrl.searchParams.set("state", oauthState);
+  return reply.redirect(googleUrl.toString());
+});
+
+app.get("/api/oauth/meta/callback", async (request, reply) => {
+  const query = request.query as { code?: string; state?: string; error?: string; error_message?: string };
+  const appUrl = process.env.APP_URL ?? "http://localhost:3000";
+
+  if (query.error) {
+    return reply.redirect(`${appUrl}/accounts?oauth_error=${encodeURIComponent(query.error_message ?? query.error)}`);
+  }
+
+  if (!query.code || !query.state || !state.oauthStates[query.state]) {
+    reply.code(400);
+    return { error: "Invalid Meta OAuth callback." };
+  }
+
+  const pending = state.oauthStates[query.state];
+  delete state.oauthStates[query.state];
+
+  const account = state.accounts.find((item) => item.id === pending.accountId);
+  if (!account) {
+    reply.code(404);
+    return { error: "Account not found" };
+  }
+
+  const shortLived = await exchangeMetaCode(query.code);
+  const longLived = await exchangeMetaLongLivedToken(shortLived.access_token);
+  const businessContext = await fetchMetaBusinessContext(longLived.access_token ?? shortLived.access_token);
+
+  const preferredPageId =
+    state.setup[account.id]?.apiConfig.pageId ?? state.setup[account.id]?.apiConfig.instagramBusinessId;
+  const selectedPage =
+    businessContext.find((page) => page.id === preferredPageId) ??
+    businessContext.find((page) => page.instagram_business_account || page.connected_instagram_account) ??
+    businessContext[0];
+  const instagramAccount =
+    selectedPage?.instagram_business_account ?? selectedPage?.connected_instagram_account ?? null;
+
+  state.credentials[account.id] = {
+    provider: "meta",
+    encryptedTokenSet: encryptJson(
+      {
+        accessToken: longLived.access_token ?? shortLived.access_token,
+        pageAccessToken: selectedPage?.access_token ?? null,
+        pageId: selectedPage?.id ?? null,
+        instagramBusinessId: instagramAccount?.id ?? null
+      },
+      getTokenSecret()
+    ),
+    scopes: [],
+    expiresAt: longLived.expires_in ? new Date(Date.now() + longLived.expires_in * 1000).toISOString() : null,
+    refreshExpiresAt: null,
+    updatedAt: new Date().toISOString(),
+    externalAccountId: account.platform === "facebook" ? (selectedPage?.id ?? null) : (instagramAccount?.id ?? null),
+    externalUsername:
+      account.platform === "facebook" ? (selectedPage?.name ?? null) : (instagramAccount?.username ?? null),
+    metadata: {
+      pageId: selectedPage?.id ?? "",
+      pageName: selectedPage?.name ?? "",
+      instagramBusinessId: instagramAccount?.id ?? "",
+      instagramUsername: instagramAccount?.username ?? ""
+    }
+  };
+
+  account.authStatus = "configured";
+  account.lastAuthRefreshAt = new Date().toISOString();
+
+  appendAudit({
+    id: `audit_${Date.now()}`,
+    actor: "Operator",
+    action: "oauth_connect_meta",
+    subject: account.displayName,
+    status: "success",
+    createdAt: new Date().toISOString(),
+    detail: `Meta OAuth connected for ${account.platform}.`
+  });
+
+  return reply.redirect(`${appUrl}/accounts/${account.id}?oauth=meta-connected`);
+});
+
+app.get("/api/oauth/tiktok/callback", async (request, reply) => {
+  const query = request.query as { code?: string; state?: string; error?: string; error_description?: string };
+  const appUrl = process.env.APP_URL ?? "http://localhost:3000";
+
+  if (query.error) {
+    return reply.redirect(`${appUrl}/accounts?oauth_error=${encodeURIComponent(query.error_description ?? query.error)}`);
+  }
+
+  if (!query.code || !query.state || !state.oauthStates[query.state]) {
+    reply.code(400);
+    return { error: "Invalid TikTok OAuth callback." };
+  }
+
+  const pending = state.oauthStates[query.state];
+  delete state.oauthStates[query.state];
+
+  const account = state.accounts.find((item) => item.id === pending.accountId);
+  if (!account) {
+    reply.code(404);
+    return { error: "Account not found" };
+  }
+
+  const tokenSet = await exchangeTikTokCode(query.code);
+  const creatorInfo = await fetchTikTokCreatorInfo(tokenSet.access_token);
+  const user = creatorInfo.data?.user;
+
+  state.credentials[account.id] = {
+    provider: "tiktok",
+    encryptedTokenSet: encryptJson(
+      {
+        accessToken: tokenSet.access_token,
+        refreshToken: tokenSet.refresh_token,
+        openId: tokenSet.open_id
+      },
+      getTokenSecret()
+    ),
+    scopes: tokenSet.scope.split(",").map((scope) => scope.trim()).filter(Boolean),
+    expiresAt: new Date(Date.now() + tokenSet.expires_in * 1000).toISOString(),
+    refreshExpiresAt: new Date(Date.now() + tokenSet.refresh_expires_in * 1000).toISOString(),
+    updatedAt: new Date().toISOString(),
+    externalAccountId: tokenSet.open_id,
+    externalUsername: user?.display_name ?? null,
+    metadata: {
+      openId: tokenSet.open_id,
+      displayName: user?.display_name ?? ""
+    }
+  };
+
+  account.authStatus = "configured";
+  account.lastAuthRefreshAt = new Date().toISOString();
+
+  appendAudit({
+    id: `audit_${Date.now()}`,
+    actor: "Operator",
+    action: "oauth_connect_tiktok",
+    subject: account.displayName,
+    status: "success",
+    createdAt: new Date().toISOString(),
+    detail: "TikTok OAuth connected."
+  });
+
+  return reply.redirect(`${appUrl}/accounts/${account.id}?oauth=tiktok-connected`);
+});
+
+app.get("/api/oauth/x/callback", async (request, reply) => {
+  const query = request.query as { code?: string; state?: string; error?: string };
+  const appUrl = process.env.APP_URL ?? "http://localhost:3000";
+  if (!query.code || !query.state || !state.oauthStates[query.state]?.codeVerifier) {
+    reply.code(400);
+    return { error: "Invalid X OAuth callback." };
+  }
+
+  const pending = state.oauthStates[query.state];
+  delete state.oauthStates[query.state];
+  const account = state.accounts.find((item) => item.id === pending.accountId);
+  if (!account) {
+    reply.code(404);
+    return { error: "Account not found" };
+  }
+
+  const tokenSet = await exchangeXCode(query.code, pending.codeVerifier ?? "");
+  state.credentials[account.id] = {
+    provider: "x",
+    encryptedTokenSet: encryptJson(
+      {
+        accessToken: tokenSet.access_token,
+        refreshToken: tokenSet.refresh_token ?? null
+      },
+      getTokenSecret()
+    ),
+    scopes: tokenSet.scope?.split(" ").filter(Boolean) ?? [],
+    expiresAt: tokenSet.expires_in ? new Date(Date.now() + tokenSet.expires_in * 1000).toISOString() : null,
+    refreshExpiresAt: null,
+    updatedAt: new Date().toISOString(),
+    externalAccountId: null,
+    externalUsername: null,
+    metadata: {}
+  };
+  account.authStatus = "configured";
+  account.lastAuthRefreshAt = new Date().toISOString();
+  appendAudit({
+    id: `audit_${Date.now()}`,
+    actor: "Operator",
+    action: "oauth_connect_x",
+    subject: account.displayName,
+    status: "success",
+    createdAt: new Date().toISOString(),
+    detail: "X OAuth connected."
+  });
+
+  return reply.redirect(`${appUrl}/accounts/${account.id}?oauth=x-connected`);
+});
+
+app.get("/api/oauth/linkedin/callback", async (request, reply) => {
+  const query = request.query as { code?: string; state?: string; error?: string };
+  const appUrl = process.env.APP_URL ?? "http://localhost:3000";
+  if (!query.code || !query.state || !state.oauthStates[query.state]) {
+    reply.code(400);
+    return { error: "Invalid LinkedIn OAuth callback." };
+  }
+
+  const pending = state.oauthStates[query.state];
+  delete state.oauthStates[query.state];
+  const account = state.accounts.find((item) => item.id === pending.accountId);
+  if (!account) {
+    reply.code(404);
+    return { error: "Account not found" };
+  }
+
+  const tokenSet = await exchangeLinkedInCode(query.code);
+  const profile = await fetchLinkedInProfile(tokenSet.access_token);
+  state.credentials[account.id] = {
+    provider: "linkedin",
+    encryptedTokenSet: encryptJson(
+      {
+        accessToken: tokenSet.access_token,
+        refreshToken: tokenSet.refresh_token ?? null,
+        authorUrn: profile.sub ? `urn:li:person:${profile.sub}` : null
+      },
+      getTokenSecret()
+    ),
+    scopes: tokenSet.scope?.split(" ").filter(Boolean) ?? [],
+    expiresAt: tokenSet.expires_in ? new Date(Date.now() + tokenSet.expires_in * 1000).toISOString() : null,
+    refreshExpiresAt: null,
+    updatedAt: new Date().toISOString(),
+    externalAccountId: profile.sub ?? null,
+    externalUsername: profile.name ?? profile.email ?? null,
+    metadata: {
+      authorUrn: profile.sub ? `urn:li:person:${profile.sub}` : ""
+    }
+  };
+  account.authStatus = "configured";
+  account.lastAuthRefreshAt = new Date().toISOString();
+  appendAudit({
+    id: `audit_${Date.now()}`,
+    actor: "Operator",
+    action: "oauth_connect_linkedin",
+    subject: account.displayName,
+    status: "success",
+    createdAt: new Date().toISOString(),
+    detail: "LinkedIn OAuth connected."
+  });
+
+  return reply.redirect(`${appUrl}/accounts/${account.id}?oauth=linkedin-connected`);
+});
+
+app.get("/api/oauth/reddit/callback", async (request, reply) => {
+  const query = request.query as { code?: string; state?: string; error?: string };
+  const appUrl = process.env.APP_URL ?? "http://localhost:3000";
+  if (!query.code || !query.state || !state.oauthStates[query.state]) {
+    reply.code(400);
+    return { error: "Invalid Reddit OAuth callback." };
+  }
+
+  const pending = state.oauthStates[query.state];
+  delete state.oauthStates[query.state];
+  const account = state.accounts.find((item) => item.id === pending.accountId);
+  if (!account) {
+    reply.code(404);
+    return { error: "Account not found" };
+  }
+
+  const tokenSet = await exchangeRedditCode(query.code);
+  const me = await fetchRedditMe(tokenSet.access_token);
+  state.credentials[account.id] = {
+    provider: "reddit",
+    encryptedTokenSet: encryptJson(
+      {
+        accessToken: tokenSet.access_token,
+        refreshToken: tokenSet.refresh_token ?? null
+      },
+      getTokenSecret()
+    ),
+    scopes: tokenSet.scope?.split(" ").filter(Boolean) ?? [],
+    expiresAt: tokenSet.expires_in ? new Date(Date.now() + tokenSet.expires_in * 1000).toISOString() : null,
+    refreshExpiresAt: null,
+    updatedAt: new Date().toISOString(),
+    externalAccountId: me.id ?? null,
+    externalUsername: me.name ?? null,
+    metadata: {}
+  };
+  account.authStatus = "configured";
+  account.lastAuthRefreshAt = new Date().toISOString();
+  appendAudit({
+    id: `audit_${Date.now()}`,
+    actor: "Operator",
+    action: "oauth_connect_reddit",
+    subject: account.displayName,
+    status: "success",
+    createdAt: new Date().toISOString(),
+    detail: "Reddit OAuth connected."
+  });
+
+  return reply.redirect(`${appUrl}/accounts/${account.id}?oauth=reddit-connected`);
+});
+
+app.get("/api/oauth/pinterest/callback", async (request, reply) => {
+  const query = request.query as { code?: string; state?: string; error?: string };
+  const appUrl = process.env.APP_URL ?? "http://localhost:3000";
+  if (!query.code || !query.state || !state.oauthStates[query.state]) {
+    reply.code(400);
+    return { error: "Invalid Pinterest OAuth callback." };
+  }
+
+  const pending = state.oauthStates[query.state];
+  delete state.oauthStates[query.state];
+  const account = state.accounts.find((item) => item.id === pending.accountId);
+  if (!account) {
+    reply.code(404);
+    return { error: "Account not found" };
+  }
+
+  const tokenSet = await exchangePinterestCode(query.code);
+  const me = await fetchPinterestMe(tokenSet.access_token);
+  state.credentials[account.id] = {
+    provider: "pinterest",
+    encryptedTokenSet: encryptJson(
+      {
+        accessToken: tokenSet.access_token,
+        refreshToken: tokenSet.refresh_token ?? null
+      },
+      getTokenSecret()
+    ),
+    scopes: tokenSet.scope?.split(",").map((value) => value.trim()).filter(Boolean) ?? [],
+    expiresAt: tokenSet.expires_in ? new Date(Date.now() + tokenSet.expires_in * 1000).toISOString() : null,
+    refreshExpiresAt: null,
+    updatedAt: new Date().toISOString(),
+    externalAccountId: null,
+    externalUsername: me.username ?? null,
+    metadata: {}
+  };
+  account.authStatus = "configured";
+  account.lastAuthRefreshAt = new Date().toISOString();
+  appendAudit({
+    id: `audit_${Date.now()}`,
+    actor: "Operator",
+    action: "oauth_connect_pinterest",
+    subject: account.displayName,
+    status: "success",
+    createdAt: new Date().toISOString(),
+    detail: "Pinterest OAuth connected."
+  });
+
+  return reply.redirect(`${appUrl}/accounts/${account.id}?oauth=pinterest-connected`);
+});
+
+app.get("/api/oauth/google/callback", async (request, reply) => {
+  const query = request.query as { code?: string; state?: string; error?: string };
+  const appUrl = process.env.APP_URL ?? "http://localhost:3000";
+  if (!query.code || !query.state || !state.oauthStates[query.state]) {
+    reply.code(400);
+    return { error: "Invalid Google OAuth callback." };
+  }
+
+  const pending = state.oauthStates[query.state];
+  delete state.oauthStates[query.state];
+  const account = state.accounts.find((item) => item.id === pending.accountId);
+  if (!account) {
+    reply.code(404);
+    return { error: "Account not found" };
+  }
+
+  const tokenSet = await exchangeGoogleCode(query.code);
+  const channel = await fetchGoogleChannel(tokenSet.access_token);
+  const firstChannel = channel.items?.[0];
+  state.credentials[account.id] = {
+    provider: "google",
+    encryptedTokenSet: encryptJson(
+      {
+        accessToken: tokenSet.access_token,
+        refreshToken: tokenSet.refresh_token ?? null,
+        channelId: firstChannel?.id ?? null
+      },
+      getTokenSecret()
+    ),
+    scopes: tokenSet.scope?.split(" ").filter(Boolean) ?? [],
+    expiresAt: tokenSet.expires_in ? new Date(Date.now() + tokenSet.expires_in * 1000).toISOString() : null,
+    refreshExpiresAt: null,
+    updatedAt: new Date().toISOString(),
+    externalAccountId: firstChannel?.id ?? null,
+    externalUsername: firstChannel?.snippet?.title ?? null,
+    metadata: {
+      channelId: firstChannel?.id ?? ""
+    }
+  };
+  account.authStatus = "configured";
+  account.lastAuthRefreshAt = new Date().toISOString();
+  appendAudit({
+    id: `audit_${Date.now()}`,
+    actor: "Operator",
+    action: "oauth_connect_google",
+    subject: account.displayName,
+    status: "success",
+    createdAt: new Date().toISOString(),
+    detail: "Google OAuth connected for YouTube."
+  });
+
+  return reply.redirect(`${appUrl}/accounts/${account.id}?oauth=google-connected`);
+});
+
+app.post("/api/accounts/:accountId/refresh-auth", async (request, reply) => {
+  const params = request.params as { accountId: string };
+  const account = state.accounts.find((item) => item.id === params.accountId);
+
+  if (!account) {
+    reply.code(404);
+    return { error: "Account not found" };
+  }
+
+  const credential = state.credentials[account.id];
+  if (!credential) {
+    reply.code(400);
+    return { error: "No OAuth credential is stored for this account." };
+  }
+
+  if (credential.provider === "tiktok") {
+    const tokenSet = getDecryptedTokenSet(account.id);
+    const refreshToken = tokenSet?.refreshToken;
+    if (typeof refreshToken !== "string" || !refreshToken) {
+      reply.code(400);
+      return { error: "No TikTok refresh token is available." };
+    }
+
+    const refreshed = await refreshTikTokToken(refreshToken);
+    state.credentials[account.id] = {
+      provider: "tiktok",
+      encryptedTokenSet: encryptJson(
+        {
+          accessToken: refreshed.access_token,
+          refreshToken: refreshed.refresh_token,
+          openId: refreshed.open_id
+        },
+        getTokenSecret()
+      ),
+      scopes: refreshed.scope.split(",").map((scope) => scope.trim()).filter(Boolean),
+      expiresAt: new Date(Date.now() + refreshed.expires_in * 1000).toISOString(),
+      refreshExpiresAt: new Date(Date.now() + refreshed.refresh_expires_in * 1000).toISOString(),
+      updatedAt: new Date().toISOString(),
+      externalAccountId: refreshed.open_id,
+      externalUsername: credential.externalUsername,
+      metadata: credential.metadata
+    };
+  }
+
+  if (credential.provider === "meta") {
+    const tokenSet = getDecryptedTokenSet(account.id);
+    const accessToken = typeof tokenSet?.accessToken === "string" ? tokenSet.accessToken : null;
+    if (!accessToken) {
+      reply.code(400);
+      return { error: "No Meta access token is available." };
+    }
+
+    const refreshed = await exchangeMetaLongLivedToken(accessToken);
+    state.credentials[account.id] = {
+      ...credential,
+      encryptedTokenSet: encryptJson(
+        {
+          ...tokenSet,
+          accessToken: refreshed.access_token ?? accessToken
+        },
+        getTokenSecret()
+      ),
+      expiresAt: refreshed.expires_in ? new Date(Date.now() + refreshed.expires_in * 1000).toISOString() : credential.expiresAt,
+      updatedAt: new Date().toISOString()
+    };
+  }
+
+  if (credential.provider === "x") {
+    const tokenSet = getDecryptedTokenSet(account.id);
+    const refreshToken = tokenSet?.refreshToken;
+    if (typeof refreshToken === "string" && refreshToken) {
+      const refreshed = await refreshXToken(refreshToken);
+      state.credentials[account.id] = {
+        ...credential,
+        encryptedTokenSet: encryptJson(
+          {
+            ...tokenSet,
+            accessToken: refreshed.access_token,
+            refreshToken: refreshed.refresh_token ?? refreshToken
+          },
+          getTokenSecret()
+        ),
+        scopes: refreshed.scope?.split(" ").filter(Boolean) ?? credential.scopes,
+        expiresAt: refreshed.expires_in ? new Date(Date.now() + refreshed.expires_in * 1000).toISOString() : credential.expiresAt,
+        updatedAt: new Date().toISOString()
+      };
+    }
+  }
+
+  if (credential.provider === "reddit") {
+    const tokenSet = getDecryptedTokenSet(account.id);
+    const refreshToken = tokenSet?.refreshToken;
+    if (typeof refreshToken === "string" && refreshToken) {
+      const refreshed = await refreshRedditToken(refreshToken);
+      state.credentials[account.id] = {
+        ...credential,
+        encryptedTokenSet: encryptJson(
+          {
+            ...tokenSet,
+            accessToken: refreshed.access_token,
+            refreshToken
+          },
+          getTokenSecret()
+        ),
+        scopes: refreshed.scope?.split(" ").filter(Boolean) ?? credential.scopes,
+        expiresAt: refreshed.expires_in ? new Date(Date.now() + refreshed.expires_in * 1000).toISOString() : credential.expiresAt,
+        updatedAt: new Date().toISOString()
+      };
+    }
+  }
+
+  if (credential.provider === "pinterest") {
+    const tokenSet = getDecryptedTokenSet(account.id);
+    const refreshToken = tokenSet?.refreshToken;
+    if (typeof refreshToken === "string" && refreshToken) {
+      const refreshed = await refreshPinterestToken(refreshToken);
+      state.credentials[account.id] = {
+        ...credential,
+        encryptedTokenSet: encryptJson(
+          {
+            ...tokenSet,
+            accessToken: refreshed.access_token,
+            refreshToken: refreshed.refresh_token ?? refreshToken
+          },
+          getTokenSecret()
+        ),
+        scopes: refreshed.scope?.split(",").map((scope) => scope.trim()).filter(Boolean) ?? credential.scopes,
+        expiresAt: refreshed.expires_in ? new Date(Date.now() + refreshed.expires_in * 1000).toISOString() : credential.expiresAt,
+        updatedAt: new Date().toISOString()
+      };
+    }
+  }
+
+  if (credential.provider === "google") {
+    const tokenSet = getDecryptedTokenSet(account.id);
+    const refreshToken = tokenSet?.refreshToken;
+    if (typeof refreshToken === "string" && refreshToken) {
+      const refreshed = await refreshGoogleToken(refreshToken);
+      state.credentials[account.id] = {
+        ...credential,
+        encryptedTokenSet: encryptJson(
+          {
+            ...tokenSet,
+            accessToken: refreshed.access_token
+          },
+          getTokenSecret()
+        ),
+        scopes: refreshed.scope?.split(" ").filter(Boolean) ?? credential.scopes,
+        expiresAt: refreshed.expires_in ? new Date(Date.now() + refreshed.expires_in * 1000).toISOString() : credential.expiresAt,
+        updatedAt: new Date().toISOString()
+      };
+    }
+  }
+
+  account.lastAuthRefreshAt = new Date().toISOString();
+
+  appendAudit({
+    id: `audit_${Date.now()}`,
+    actor: "Operator",
+    action: "refresh_auth",
+    subject: account.displayName,
+    status: "success",
+    createdAt: new Date().toISOString(),
+    detail: `Refreshed ${credential.provider} auth state.`
+  });
+
+  return {
+    accepted: true,
+    provider: credential.provider,
+    expiresAt: state.credentials[account.id].expiresAt,
+    refreshExpiresAt: state.credentials[account.id].refreshExpiresAt
+  };
+});
+
+app.post("/api/accounts/setup", async (request, reply) => {
+  const parsed = updateAccountSetupSchema.safeParse(request.body);
+  if (!parsed.success) {
+    reply.code(400);
+    return { error: "Invalid setup payload", issues: parsed.error.issues };
+  }
+
+  const account = state.accounts.find((item) => item.id === parsed.data.accountId);
+  if (!account) {
+    reply.code(404);
+    return { error: "Account not found" };
+  }
+
+  const existingSetup = state.setup[account.id];
+  const mergedApiConfig = Object.fromEntries(
+    Object.entries({
+      ...(existingSetup?.apiConfig ?? {}),
+      ...parsed.data.apiConfig
+    }).filter(([, value]) => value !== "")
+  );
+  const mergedSessionConfig = Object.fromEntries(
+    Object.entries({
+      ...(existingSetup?.sessionConfig ?? {}),
+      ...parsed.data.sessionConfig
+    }).filter(([, value]) => value !== "")
+  );
+
+  account.connectorMode = parsed.data.connectorMode;
+  account.automationMode = parsed.data.automationMode;
+  account.openClawEnabled = parsed.data.openClawEnabled;
+  account.authStatus =
+    Object.keys(mergedApiConfig).length > 0 || Object.keys(mergedSessionConfig).length > 0
+      ? "configured"
+      : "not_started";
+
+  state.setup[account.id] = {
+    accountId: account.id,
+    connectorMode: parsed.data.connectorMode,
+    automationMode: parsed.data.automationMode,
+    authStatus: account.authStatus,
+    openClawEnabled: parsed.data.openClawEnabled,
+    apiConfig: mergedApiConfig,
+    sessionConfig: mergedSessionConfig,
+    notes: parsed.data.notes,
+    updatedAt: new Date().toISOString()
+  };
+
+  appendAudit({
+    id: `audit_${Date.now()}`,
+    actor: "Operator",
+    action: "update_account_setup",
+    subject: account.displayName,
+    status: "success",
+    createdAt: new Date().toISOString(),
+    detail: `Setup updated for ${account.platform} using ${parsed.data.connectorMode}.`
+  });
+
+  return state.setup[account.id];
+});
+
+app.post("/api/accounts/connect", async (request, reply) => {
+  const parsed = connectAccountSchema.safeParse(request.body);
+  if (!parsed.success) {
+    reply.code(400);
+    return { error: "Invalid connect payload", issues: parsed.error.issues };
+  }
+
+  const account = state.accounts.find((item) => item.id === parsed.data.accountId);
+  if (!account) {
+    reply.code(404);
+    return { error: "Account not found" };
+  }
+
+  const connector = connectorFactory(account.platform);
+  const execution = await connector.connect({
+    accountId: account.id,
+    platform: account.platform,
+    handle: account.handle
+  });
+
+  if (account.platform === "bluesky") {
+    const setup = state.setup[account.id];
+    const identifier = setup?.apiConfig.identifier;
+    const appPassword = setup?.apiConfig.appPassword;
+    if (identifier && appPassword) {
+      const session = await createBlueskySession(identifier, appPassword);
+      state.credentials[account.id] = {
+        provider: "bluesky",
+        encryptedTokenSet: encryptJson(
+          {
+            accessJwt: session.accessJwt,
+            refreshJwt: session.refreshJwt,
+            did: session.did,
+            handle: session.handle,
+            accessToken: session.accessJwt
+          },
+          getTokenSecret()
+        ),
+        scopes: [],
+        expiresAt: null,
+        refreshExpiresAt: null,
+        updatedAt: new Date().toISOString(),
+        externalAccountId: session.did,
+        externalUsername: session.handle,
+        metadata: {
+          did: session.did,
+          handle: session.handle
+        }
+      };
+    }
+  }
+
+  if (account.authStatus === "not_started") {
+    account.authStatus = "configured";
+  }
+
+  appendAudit({
+    id: `audit_${Date.now()}`,
+    actor: "Operator",
+    action: "prepare_connector",
+    subject: account.displayName,
+    status: execution.ok ? "success" : "warning",
+    createdAt: new Date().toISOString(),
+    detail: execution.message
+  });
+
+  return execution;
 });
 
 app.get("/api/session-vault", async () =>
   state.accounts
     .filter((account) => account.sessionRequired)
-    .map((account) => ({
-      accountId: account.id,
-      displayName: account.displayName,
-      platform: account.platform,
-      connectorMode: account.connectorMode,
-      sessionHealth: account.sessionHealth,
-      lastAuthRefreshAt: account.lastAuthRefreshAt,
-      certifiedFeatures: account.features,
-      version: state.sessions[account.id]?.version ?? (account.sessionHealth === "healthy" ? 3 : 2),
-      storageMode: state.sessions[account.id]?.storageMode ?? "encrypted_profile+bundle",
-      warnings:
-        account.sessionHealth === "healthy"
-          ? []
-          : ["Connector needs recertification before enabling unattended replies."]
-    }))
+    .map((account) => {
+      const record = state.sessions[account.id];
+      const bundle = record
+        ? decryptJson<{
+            cookies: Array<unknown>;
+            localStorage: Record<string, string>;
+          }>(record.encryptedBundle, process.env.SESSION_ENCRYPTION_KEY ?? "development-session-key")
+        : null;
+
+      return {
+        accountId: account.id,
+        displayName: account.displayName,
+        platform: account.platform,
+        connectorMode: account.connectorMode,
+        sessionHealth: account.sessionHealth,
+        lastAuthRefreshAt: account.lastAuthRefreshAt,
+        certifiedFeatures: account.features,
+        version: record?.version ?? (account.sessionHealth === "healthy" ? 3 : 2),
+        storageMode: record?.storageMode ?? "encrypted_profile+bundle",
+        source: record?.source ?? "placeholder_capture",
+        cookieCount: bundle?.cookies.length ?? 0,
+        localStorageCount: bundle ? Object.keys(bundle.localStorage).length : 0,
+        warnings:
+          account.sessionHealth === "healthy"
+            ? []
+            : ["Connector needs recertification before enabling unattended replies."]
+      };
+    })
 );
 
 app.post("/api/session-vault/capture", async (request, reply) => {
@@ -149,10 +1366,25 @@ app.post("/api/session-vault/capture", async (request, reply) => {
   state.sessions[account.id] = {
     encryptedBundle:
       existing?.encryptedBundle ??
-      Buffer.from(`placeholder-${parsed.data.mode}-${account.id}`).toString("base64"),
+      encryptJson(
+        {
+          cookies: [],
+          localStorage: {},
+          sessionStorage: {},
+          csrfTokens: {},
+          fingerprint: {
+            userAgent: "capture-placeholder",
+            viewport: "0x0",
+            locale: "en-GB"
+          },
+          profileObjectKey: parsed.data.mode === "profile" ? `profiles/${account.id}/placeholder.enc` : null
+        },
+        process.env.SESSION_ENCRYPTION_KEY ?? "development-session-key"
+      ),
     version: (existing?.version ?? 2) + 1,
     storageMode:
-      parsed.data.mode === "profile" ? "encrypted_profile+bundle" : "encrypted_bundle_only"
+      parsed.data.mode === "profile" ? "encrypted_profile+bundle" : "encrypted_bundle_only",
+    source: "capture_flow"
   };
 
   account.sessionHealth = "healthy";
@@ -174,6 +1406,52 @@ app.post("/api/session-vault/capture", async (request, reply) => {
     accountId: account.id,
     version: state.sessions[account.id].version,
     storageMode: state.sessions[account.id].storageMode
+  };
+});
+
+app.post("/api/session-vault/import", async (request, reply) => {
+  const parsed = importSessionBundleSchema.safeParse(request.body);
+  if (!parsed.success) {
+    reply.code(400);
+    return { error: "Invalid session import payload", issues: parsed.error.issues };
+  }
+
+  const account = state.accounts.find((item) => item.id === parsed.data.accountId);
+  if (!account) {
+    reply.code(404);
+    return { error: "Account not found" };
+  }
+
+  state.sessions[account.id] = {
+    encryptedBundle: encryptJson(
+      parsed.data.bundle,
+      process.env.SESSION_ENCRYPTION_KEY ?? "development-session-key"
+    ),
+    version: (state.sessions[account.id]?.version ?? 0) + 1,
+    storageMode: parsed.data.mode === "profile" ? "encrypted_profile+bundle" : "encrypted_bundle_only",
+    source: "manual_import"
+  };
+
+  account.sessionHealth = parsed.data.bundle.cookies.length > 0 ? "healthy" : "warning";
+  account.lastAuthRefreshAt = new Date().toISOString();
+  account.authStatus = account.authStatus === "not_started" ? "configured" : account.authStatus;
+
+  appendAudit({
+    id: `audit_${Date.now()}`,
+    actor: "Operator",
+    action: "import_session_bundle",
+    subject: account.displayName,
+    status: "success",
+    createdAt: new Date().toISOString(),
+    detail: `Imported encrypted session bundle with ${parsed.data.bundle.cookies.length} cookies.`
+  });
+
+  return {
+    accepted: true,
+    accountId: account.id,
+    version: state.sessions[account.id].version,
+    storageMode: state.sessions[account.id].storageMode,
+    cookieCount: parsed.data.bundle.cookies.length
   };
 });
 
@@ -203,6 +1481,12 @@ app.post("/api/accounts/certify", async (request, reply) => {
 
   account.openClawEnabled = certification.authValid;
   account.sessionHealth = certification.sessionStabilityScore >= 80 ? "healthy" : "warning";
+  account.authStatus = certification.authValid ? "certified" : "configured";
+
+  if (state.setup[account.id]) {
+    state.setup[account.id].authStatus = account.authStatus;
+    state.setup[account.id].updatedAt = new Date().toISOString();
+  }
 
   appendAudit({
     id: `audit_${Date.now()}`,
@@ -272,6 +1556,14 @@ app.post("/api/openclaw/actions", async (request, reply) => {
     : undefined;
   const platform = account?.platform;
   const connector = platform ? connectorFactory(platform) : undefined;
+  const officialExecution =
+    connector && account
+      ? await executePlatformAction(account.id, account.platform, payload.action, payload.payload)
+      : null;
+  const sessionExecution =
+    !officialExecution && account && account.connectorMode !== "api_auth"
+      ? await executeSessionAction(account.id, account.platform, payload.action, payload.payload)
+      : null;
   const execution =
     connector && account
       ? await connector.execute(
@@ -322,8 +1614,13 @@ app.post("/api/openclaw/actions", async (request, reply) => {
     mode: account?.connectorMode ?? "api_auth",
     action: payload.action,
     queuedAt: new Date().toISOString(),
-    execution,
-    note: "Action accepted. Worker execution and session handling occur in downstream services."
+    execution: officialExecution ?? sessionExecution ?? execution,
+    note:
+      officialExecution
+        ? "Action executed against the official provider integration."
+        : sessionExecution
+          ? "Action executed through the isolated session-runner."
+          : "Action accepted. Worker execution and session handling occur in downstream services."
   };
 });
 

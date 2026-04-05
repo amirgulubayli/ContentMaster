@@ -1,10 +1,14 @@
 import type {
   Account,
+  AccountSetupReadiness,
+  AccountSetupState,
   Alert,
+  AuthField,
   AuditEvent,
   ContentCard,
   DashboardSnapshot,
   InboxItem,
+  PlatformSetupBlueprint,
   Project,
   QueueItem
 } from "@content-empire/shared";
@@ -35,6 +39,39 @@ export function getAccounts() {
   return getJson<Account[]>("/api/accounts", []);
 }
 
+export function getPlatformSetup() {
+  return getJson<PlatformSetupBlueprint[]>("/api/platform-setup", []);
+}
+
+export function getAccountProfile(accountId: string) {
+  return getJson<{
+    account: Account;
+    profile: {
+      platform: Account["platform"];
+      defaultMode: Account["connectorMode"];
+      sessionFallback: boolean;
+      requiresSessionAtLaunch: boolean;
+      dmSupport: "none" | "api" | "session" | "hybrid";
+      notes: string;
+      features: Account["features"];
+      liveExecutionImplemented: boolean;
+    };
+    blueprint: PlatformSetupBlueprint;
+    setup: AccountSetupState;
+    readiness: AccountSetupReadiness;
+    authConnection: {
+      provider: string;
+      scopes: string[];
+      expiresAt: string | null;
+      refreshExpiresAt: string | null;
+      updatedAt: string;
+      externalAccountId: string | null;
+      externalUsername: string | null;
+      metadata: Record<string, string>;
+    } | null;
+  }>(`/api/accounts/${accountId}/profile`, null as never);
+}
+
 export function getSessionVault() {
   return getJson<
     Array<{
@@ -47,6 +84,9 @@ export function getSessionVault() {
       certifiedFeatures: string[];
       version: number;
       storageMode: string;
+      source: string;
+      cookieCount: number;
+      localStorageCount: number;
       warnings: string[];
     }>
   >("/api/session-vault", []);

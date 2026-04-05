@@ -1,4 +1,5 @@
 import { getPlatformProfile } from "@content-empire/connectors";
+import Link from "next/link";
 import { certifyAccountAction } from "../actions";
 import { DashboardShell } from "../../components/dashboard-shell";
 import { getAccounts } from "../../lib/api";
@@ -11,7 +12,7 @@ export default async function AccountsPage() {
   return (
     <DashboardShell
       title="Accounts"
-      description="Per-account connector mode, certified features, automation level, and OpenClaw access."
+      description="Per-account connector mode, setup state, certified features, automation level, and OpenClaw access."
     >
       <section className="panel">
         {accounts.length === 0 ? (
@@ -31,18 +32,27 @@ export default async function AccountsPage() {
               <tbody>
                 {accounts.map((account) => {
                   const profile = getPlatformProfile(account.platform);
+
                   return (
                     <tr key={account.id}>
                       <td>
                         <strong>{account.displayName}</strong>
                         <div className="cell-note">
-                          {account.projectName} · {account.handle}
+                          {account.projectName} | {account.handle}
+                        </div>
+                        <div className="cell-note">
+                          <Link href={`/accounts/${account.id}`} prefetch={false}>
+                            Open setup
+                          </Link>
                         </div>
                       </td>
                       <td>
                         <strong>{account.connectorMode}</strong>
                         <div className="cell-note">
                           Session required: {account.sessionRequired ? "yes" : "no"}
+                        </div>
+                        <div className="cell-note">
+                          Execution: {profile.liveExecutionImplemented ? "live" : "scaffolded"}
                         </div>
                       </td>
                       <td>
@@ -58,6 +68,7 @@ export default async function AccountsPage() {
                         <span className={`badge badge-${account.sessionHealth}`}>
                           {account.automationMode}
                         </span>
+                        <div className="cell-note">{account.authStatus}</div>
                       </td>
                       <td>{profile.notes}</td>
                     </tr>

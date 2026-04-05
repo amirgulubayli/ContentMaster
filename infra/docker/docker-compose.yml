@@ -109,9 +109,7 @@ services:
   session-runner:
     build:
       context: ../..
-      dockerfile: infra/docker/Dockerfile.node
-      args:
-        WORKSPACE: "@content-empire/session-runner"
+      dockerfile: infra/docker/Dockerfile.session-runner
     container_name: content-empire-session-runner
     restart: unless-stopped
     env_file:

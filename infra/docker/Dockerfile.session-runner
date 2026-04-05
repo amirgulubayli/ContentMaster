@@ -1,0 +1,22 @@
+FROM mcr.microsoft.com/playwright:v1.55.0-jammy AS base
+WORKDIR /app
+
+FROM base AS deps
+COPY package.json tsconfig.base.json ./
+COPY apps ./apps
+COPY packages ./packages
+RUN npm install
+
+FROM deps AS build
+RUN npm run build --workspace @content-empire/session-runner
+
+FROM base AS runtime
+WORKDIR /app
+ENV NODE_ENV=production
+ENV WORKSPACE=@content-empire/session-runner
+COPY --from=deps /app/node_modules ./node_modules
+COPY --from=deps /app/package.json ./package.json
+COPY --from=deps /app/apps ./apps
+COPY --from=deps /app/packages ./packages
+COPY --from=build /app/apps ./apps
+CMD ["sh", "-c", "npm run start --workspace ${WORKSPACE}"]

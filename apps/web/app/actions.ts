@@ -24,6 +24,20 @@ async function postJson(path: string, body: object, token?: string) {
   return response.json();
 }
 
+function collectPrefixedConfig(formData: FormData, prefix: string) {
+  const output: Record<string, string> = {};
+
+  for (const [key, value] of formData.entries()) {
+    if (!key.startsWith(prefix) || typeof value !== "string") {
+      continue;
+    }
+
+    output[key.slice(prefix.length)] = value;
+  }
+
+  return output;
+}
+
 export async function createProjectAction(formData: FormData) {
   await postJson("/api/projects", {
     name: formData.get("name"),
@@ -52,6 +66,51 @@ export async function createAccountAction(formData: FormData) {
   redirect("/accounts");
 }
 
+export async function updateAccountSetupAction(formData: FormData) {
+  const apiConfig =
+    formData.get("apiConfig") !== null
+      ? JSON.parse(String(formData.get("apiConfig") ?? "{}"))
+      : collectPrefixedConfig(formData, "api__");
+  const sessionConfig =
+    formData.get("sessionConfig") !== null
+      ? JSON.parse(String(formData.get("sessionConfig") ?? "{}"))
+      : collectPrefixedConfig(formData, "session__");
+
+  await postJson("/api/accounts/setup", {
+    accountId: formData.get("accountId"),
+    connectorMode: formData.get("connectorMode"),
+    automationMode: formData.get("automationMode"),
+    openClawEnabled: formData.get("openClawEnabled") === "on",
+    notes: formData.get("notes"),
+    apiConfig,
+    sessionConfig
+  });
+
+  revalidatePath("/accounts");
+  revalidatePath("/session-vault");
+  redirect(`/accounts/${formData.get("accountId")}`);
+}
+
+export async function connectAccountAction(formData: FormData) {
+  const accountId = String(formData.get("accountId"));
+  await postJson("/api/accounts/connect", { accountId });
+
+  revalidatePath("/accounts");
+  revalidatePath(`/accounts/${accountId}`);
+  revalidatePath("/audit");
+  redirect(`/accounts/${accountId}`);
+}
+
+export async function refreshAuthAction(formData: FormData) {
+  const accountId = String(formData.get("accountId"));
+  await postJson(`/api/accounts/${accountId}/refresh-auth`, {});
+
+  revalidatePath("/accounts");
+  revalidatePath(`/accounts/${accountId}`);
+  revalidatePath("/audit");
+  redirect(`/accounts/${accountId}`);
+}
+
 export async function certifyAccountAction(formData: FormData) {
   await postJson("/api/accounts/certify", {
     accountId: formData.get("accountId")
@@ -71,6 +130,34 @@ export async function captureSessionAction(formData: FormData) {
 
   revalidatePath("/session-vault");
   revalidatePath("/accounts");
+  redirect("/session-vault");
+}
+
+export async function importSessionBundleAction(formData: FormData) {
+  const accountId = String(formData.get("accountId"));
+  const bundleText = String(formData.get("bundleJson") ?? "").trim();
+  const bundleFile = formData.get("bundleFile");
+
+  let sourceText = bundleText;
+  if (!sourceText && bundleFile instanceof File && bundleFile.size > 0) {
+    sourceText = await bundleFile.text();
+  }
+
+  if (!sourceText) {
+    throw new Error("Provide a session bundle JSON payload or upload a JSON file.");
+  }
+
+  await postJson("/api/session-vault/import", {
+    accountId,
+    mode: formData.get("mode"),
+    notes: formData.get("notes"),
+    bundle: JSON.parse(sourceText)
+  });
+
+  revalidatePath("/session-vault");
+  revalidatePath("/accounts");
+  revalidatePath(`/accounts/${accountId}`);
+  revalidatePath("/audit");
   redirect("/session-vault");
 }
 
@@ -94,14 +181,20 @@ export async function openClawAction(formData: FormData) {
     throw new Error("INTERNAL_MACHINE_TOKEN is not set");
   }
 
+  const payloadText = String(formData.get("payloadJson") ?? "").trim();
+  const payload =
+    payloadText.length > 0
+      ? JSON.parse(payloadText)
+      : {
+          prompt: formData.get("prompt")
+        };
+
   await postJson(
     "/api/openclaw/actions",
     {
       action: formData.get("action"),
       accountId: formData.get("accountId"),
-      payload: {
-        prompt: formData.get("prompt")
-      }
+      payload
     },
     token
   );

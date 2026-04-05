@@ -82,6 +82,11 @@ export default async function OpenClawPage() {
               ))}
             </select>
             <input name="prompt" placeholder="Optional operator note or prompt" />
+            <textarea
+              name="payloadJson"
+              rows={8}
+              placeholder='Optional JSON payload, for example {"message":"Launch post","imageUrl":"https://...","pageId":"..."}'
+            />
             <button type="submit">Dispatch action</button>
           </form>
         )}

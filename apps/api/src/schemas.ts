@@ -3,7 +3,8 @@ import {
   connectorModeSchema,
   featureKeySchema,
   openClawActionSchema,
-  platformSchema
+  platformSchema,
+  sessionBundleSchema
 } from "@content-empire/shared";
 import { z } from "zod";
 
@@ -23,6 +24,20 @@ export const createAccountSchema = z.object({
   automationMode: automationModeSchema.default("manual_review")
 });
 
+export const updateAccountSetupSchema = z.object({
+  accountId: z.string(),
+  connectorMode: connectorModeSchema,
+  automationMode: automationModeSchema,
+  openClawEnabled: z.boolean().default(false),
+  notes: z.string().default(""),
+  apiConfig: z.record(z.string(), z.string()).default({}),
+  sessionConfig: z.record(z.string(), z.string()).default({})
+});
+
+export const connectAccountSchema = z.object({
+  accountId: z.string()
+});
+
 export const certifyAccountSchema = z.object({
   accountId: z.string(),
   featureOverrides: z.array(featureKeySchema).optional()
@@ -40,6 +55,13 @@ export const captureSessionSchema = z.object({
   accountId: z.string(),
   mode: z.enum(["cookies_only", "bundle", "profile"]).default("bundle"),
   notes: z.string().default("")
+});
+
+export const importSessionBundleSchema = z.object({
+  accountId: z.string(),
+  mode: z.enum(["cookies_only", "bundle", "profile"]).default("bundle"),
+  notes: z.string().default(""),
+  bundle: sessionBundleSchema
 });
 
 export { openClawActionSchema };

@@ -42,6 +42,7 @@ export const seedAccounts: Account[] = [
     connectorMode: "api_auth",
     automationMode: "full_auto",
     sessionHealth: "healthy",
+    authStatus: "certified",
     features: ["publish_text", "reply_comment", "read_metrics"],
     lastAuthRefreshAt: new Date().toISOString(),
     lastPostAt: new Date().toISOString(),
@@ -58,6 +59,7 @@ export const seedAccounts: Account[] = [
     connectorMode: "session_auth",
     automationMode: "assisted_auto",
     sessionHealth: "warning",
+    authStatus: "configured",
     features: [
       "publish_text",
       "edit_published",
@@ -79,6 +81,7 @@ export const seedAccounts: Account[] = [
     connectorMode: "hybrid_auth",
     automationMode: "manual_review",
     sessionHealth: "healthy",
+    authStatus: "configured",
     features: [
       "publish_image",
       "publish_video",

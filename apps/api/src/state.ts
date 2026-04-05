@@ -1,4 +1,5 @@
 import {
+  type AccountSetupState,
   encryptJson,
   seedAccounts,
   seedAlerts,
@@ -34,10 +35,38 @@ export const state = {
       {
         encryptedBundle: encryptJson(bundle, encryptionSecret),
         version: 3,
-        storageMode: "encrypted_profile+bundle"
+        storageMode: "encrypted_profile+bundle",
+        source: "seed"
       }
     ])
-  ) as Record<string, { encryptedBundle: string; version: number; storageMode: string }>
+  ) as Record<
+    string,
+    { encryptedBundle: string; version: number; storageMode: string; source: string }
+  >,
+  credentials: {} as Record<
+    string,
+    {
+      provider: "meta" | "tiktok" | "x" | "linkedin" | "reddit" | "pinterest" | "google" | "bluesky";
+      encryptedTokenSet: string;
+      scopes: string[];
+      expiresAt: string | null;
+      refreshExpiresAt: string | null;
+      updatedAt: string;
+      externalAccountId: string | null;
+      externalUsername: string | null;
+      metadata: Record<string, string>;
+    }
+  >,
+  oauthStates: {} as Record<
+    string,
+    {
+      accountId: string;
+      provider: "meta" | "tiktok" | "x" | "linkedin" | "reddit" | "pinterest" | "google";
+      createdAt: string;
+      codeVerifier?: string;
+    }
+  >,
+  setup: {} as Record<string, AccountSetupState>
 };
 
 export function appendAudit(event: AuditEvent) {

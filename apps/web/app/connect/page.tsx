@@ -1,12 +1,12 @@
 import { platformRegistry } from "@content-empire/connectors";
 import { createAccountAction, createProjectAction } from "../actions";
 import { DashboardShell } from "../../components/dashboard-shell";
-import { getProjects } from "../../lib/api";
+import { getPlatformSetup, getProjects } from "../../lib/api";
 
 export const dynamic = "force-dynamic";
 
 export default async function ConnectPage() {
-  const projects = await getProjects();
+  const [projects, setupBlueprints] = await Promise.all([getProjects(), getPlatformSetup()]);
 
   return (
     <DashboardShell
@@ -22,7 +22,8 @@ export default async function ConnectPage() {
           <ol className="ordered-list">
             <li>Select the project that will own the account.</li>
             <li>Choose the platform and the connector path it allows.</li>
-            <li>Run OAuth/app-password flow or controlled session capture.</li>
+            <li>Save the account setup fields before attempting connect or session capture.</li>
+            <li>Run OAuth, app-password, or controlled session capture depending on the mode.</li>
             <li>Execute dry-run publish, comment, inbox, and metrics certification.</li>
             <li>Enable OpenClaw once the account reaches the required trust level.</li>
           </ol>
@@ -79,11 +80,13 @@ export default async function ConnectPage() {
           <p>The expected connection method for every launch platform.</p>
         </header>
         <div className="platform-cards">
-          {Object.values(platformRegistry).map((profile) => (
+          {setupBlueprints.map((profile) => (
             <article className="platform-card" key={profile.platform}>
               <strong>{profile.platform}</strong>
-              <span>{profile.defaultMode}</span>
-              <p>{profile.notes}</p>
+              <span>{profile.supportedModes.join(" / ")}</span>
+              <p>API fields: {profile.apiFields.length} | Session fields: {profile.sessionFields.length}</p>
+              <p>Execution: {profile.liveExecutionImplemented ? "live" : "scaffolded"}</p>
+              <p>{profile.notes.join(" ")}</p>
             </article>
           ))}
         </div>
