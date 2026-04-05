@@ -11,11 +11,13 @@ export async function loginAction(formData: FormData) {
   }
 
   const cookieStore = await cookies();
+  const secureCookie = (process.env.APP_URL ?? "").startsWith("https://");
   cookieStore.set("ce_admin", "authenticated", {
     httpOnly: true,
-    secure: process.env.NODE_ENV === "production",
+    secure: secureCookie,
     sameSite: "lax",
-    path: "/"
+    path: "/",
+    maxAge: 60 * 60 * 24 * 30
   });
 
   redirect("/");

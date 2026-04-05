@@ -32,7 +32,7 @@ export function DashboardShell({
         </div>
         <nav className="sidebar-nav">
           {navItems.map((item) => (
-            <Link key={item.href} href={item.href}>
+            <Link key={item.href} href={item.href} prefetch={false}>
               {item.label}
             </Link>
           ))}

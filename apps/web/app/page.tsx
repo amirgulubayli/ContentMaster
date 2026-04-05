@@ -62,41 +62,48 @@ export default async function HomePage() {
         </div>
       </section>
 
-      <section className="section-grid">
-        <article className="panel">
-          <header className="panel-header">
-            <h2>Operator workflow</h2>
-            <p>You connect accounts, certify features, and retain kill switches.</p>
-          </header>
-          <ol className="ordered-list">
-            <li>Create a project and set its voice, media policy, and automation ceiling.</li>
-            <li>Connect each account through OAuth, app-password, or controlled session capture.</li>
-            <li>Certify publish, edit, comment, inbox, DM, and analytics capabilities.</li>
-            <li>Choose `manual_review`, `assisted_auto`, or `full_auto` per account.</li>
-            <li>Enable OpenClaw control once the account passes certification.</li>
-          </ol>
-        </article>
+      {accounts.length === 0 ? (
+        <section className="section-grid">
+          <article className="panel">
+            <header className="panel-header">
+              <h2>First-run setup</h2>
+              <p>This instance is empty. Start by creating your first project and account.</p>
+            </header>
+            <ol className="ordered-list">
+              <li>Create a project in `Connect`.</li>
+              <li>Add the first platform account to that project.</li>
+              <li>Capture or validate auth in `Session Vault` if the platform needs it.</li>
+              <li>Run certification in `Accounts`.</li>
+              <li>Then begin using `Content Studio` and `OpenClaw`.</li>
+            </ol>
+          </article>
+          <article className="panel">
+            <header className="panel-header">
+              <h2>What’s ready</h2>
+              <p>The app screens are live and connected.</p>
+            </header>
+            <div className="feature-stack">
+              {[
+                "projects",
+                "accounts",
+                "session vault",
+                "content studio",
+                "inbox",
+                "queue",
+                "audit",
+                "OpenClaw actions"
+              ].map((item) => (
+                <span className="feature-pill" key={item}>
+                  {item}
+                </span>
+              ))}
+            </div>
+          </article>
+        </section>
+      ) : null}
 
-        <article className="panel">
-          <header className="panel-header">
-            <h2>Session vault model</h2>
-            <p>Cookies are treated as structured session bundles, not flat strings.</p>
-          </header>
-          <ul className="chip-list">
-            <li>Cookies</li>
-            <li>Local storage</li>
-            <li>Session storage</li>
-            <li>CSRF state</li>
-            <li>Fingerprint metadata</li>
-            <li>Encrypted browser profile</li>
-          </ul>
-          <p className="muted">
-            OpenClaw can use session-backed features without ever seeing the raw session bundle.
-          </p>
-        </article>
-      </section>
-
-      <section className="panel">
+      {accounts.length > 0 ? (
+        <section className="panel">
         <header className="panel-header">
           <h2>Account and connector matrix</h2>
           <p>Each account has a concrete auth mode, certified features, and a visible health state.</p>
@@ -148,7 +155,8 @@ export default async function HomePage() {
             </tbody>
           </table>
         </div>
-      </section>
+        </section>
+      ) : null}
 
       <section className="two-up">
         <article className="panel">
@@ -211,18 +219,22 @@ export default async function HomePage() {
           <h2>OpenClaw audit trail</h2>
           <p>Every machine action is routed through the control API and logged.</p>
         </header>
-        <div className="audit-list">
-          {audit.map((event) => (
-            <article className="audit-item" key={event.id}>
-              <strong>{event.action}</strong>
-              <span>{event.subject}</span>
-              <small>
-                {event.actor} · {event.status}
-              </small>
-              <p>{event.detail}</p>
-            </article>
-          ))}
-        </div>
+        {audit.length === 0 ? (
+          <p className="empty-state">No audit events yet. They will appear after setup actions and OpenClaw tasks.</p>
+        ) : (
+          <div className="audit-list">
+            {audit.map((event) => (
+              <article className="audit-item" key={event.id}>
+                <strong>{event.action}</strong>
+                <span>{event.subject}</span>
+                <small>
+                  {event.actor} · {event.status}
+                </small>
+                <p>{event.detail}</p>
+              </article>
+            ))}
+          </div>
+        )}
       </section>
     </DashboardShell>
   );

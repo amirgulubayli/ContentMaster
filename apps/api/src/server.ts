@@ -1,6 +1,6 @@
 import cors from "@fastify/cors";
 import { connectorFactory, getPlatformProfile, platformRegistry } from "@content-empire/connectors";
-import { decryptJson, seedDashboard } from "@content-empire/shared";
+import { type DashboardSnapshot, decryptJson } from "@content-empire/shared";
 import Fastify from "fastify";
 import {
   captureSessionSchema,
@@ -26,7 +26,13 @@ app.get("/health", async () => ({
   timestamp: new Date().toISOString()
 }));
 
-app.get("/api/dashboard", async () => seedDashboard);
+app.get("/api/dashboard", async (): Promise<DashboardSnapshot> => ({
+  projects: state.projects,
+  accounts: state.accounts,
+  alerts: state.alerts,
+  queue: state.queue,
+  audit: state.audit
+}));
 
 app.get("/api/projects", async () => state.projects);
 

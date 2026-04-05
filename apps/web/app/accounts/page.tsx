@@ -14,71 +14,79 @@ export default async function AccountsPage() {
       description="Per-account connector mode, certified features, automation level, and OpenClaw access."
     >
       <section className="panel">
-        <div className="table-wrap">
-          <table>
-            <thead>
-              <tr>
-                <th>Account</th>
-                <th>Auth path</th>
-                <th>Certified features</th>
-                <th>Automation</th>
-                <th>Notes</th>
-              </tr>
-            </thead>
-            <tbody>
-              {accounts.map((account) => {
-                const profile = getPlatformProfile(account.platform);
-                return (
-                  <tr key={account.id}>
-                    <td>
-                      <strong>{account.displayName}</strong>
-                      <div className="cell-note">
-                        {account.projectName} · {account.handle}
-                      </div>
-                    </td>
-                    <td>
-                      <strong>{account.connectorMode}</strong>
-                      <div className="cell-note">
-                        Session required: {account.sessionRequired ? "yes" : "no"}
-                      </div>
-                    </td>
-                    <td>
-                      <div className="feature-stack">
-                        {account.features.map((feature) => (
-                          <span className="feature-pill" key={feature}>
-                            {feature}
-                          </span>
-                        ))}
-                      </div>
-                    </td>
-                    <td>
-                      <span className={`badge badge-${account.sessionHealth}`}>
-                        {account.automationMode}
-                      </span>
-                    </td>
-                    <td>{profile.notes}</td>
-                  </tr>
-                );
-              })}
-            </tbody>
-          </table>
-        </div>
+        {accounts.length === 0 ? (
+          <p className="empty-state">No accounts yet. Create your first one in `Connect`.</p>
+        ) : (
+          <div className="table-wrap">
+            <table>
+              <thead>
+                <tr>
+                  <th>Account</th>
+                  <th>Auth path</th>
+                  <th>Certified features</th>
+                  <th>Automation</th>
+                  <th>Notes</th>
+                </tr>
+              </thead>
+              <tbody>
+                {accounts.map((account) => {
+                  const profile = getPlatformProfile(account.platform);
+                  return (
+                    <tr key={account.id}>
+                      <td>
+                        <strong>{account.displayName}</strong>
+                        <div className="cell-note">
+                          {account.projectName} · {account.handle}
+                        </div>
+                      </td>
+                      <td>
+                        <strong>{account.connectorMode}</strong>
+                        <div className="cell-note">
+                          Session required: {account.sessionRequired ? "yes" : "no"}
+                        </div>
+                      </td>
+                      <td>
+                        <div className="feature-stack">
+                          {account.features.map((feature) => (
+                            <span className="feature-pill" key={feature}>
+                              {feature}
+                            </span>
+                          ))}
+                        </div>
+                      </td>
+                      <td>
+                        <span className={`badge badge-${account.sessionHealth}`}>
+                          {account.automationMode}
+                        </span>
+                      </td>
+                      <td>{profile.notes}</td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
+          </div>
+        )}
       </section>
       <section className="panel">
         <header className="panel-header">
           <h2>Certify account</h2>
           <p>Run the connector certification flow before enabling unattended automation.</p>
         </header>
-        <form action={certifyAccountAction} className="inline-form">
-          <select name="accountId" required>
-            {accounts.map((account) => (
-              <option key={account.id} value={account.id}>
-                {account.displayName}
-              </option>
-            ))}
-          </select>
-          <button type="submit">Run certification</button>
-        </form>
+        {accounts.length === 0 ? (
+          <p className="empty-state">Add an account first, then you can certify it here.</p>
+        ) : (
+          <form action={certifyAccountAction} className="inline-form">
+            <select name="accountId" required>
+              {accounts.map((account) => (
+                <option key={account.id} value={account.id}>
+                  {account.displayName}
+                </option>
+              ))}
+            </select>
+            <button type="submit">Run certification</button>
+          </form>
+        )}
       </section>
     </DashboardShell>
   );

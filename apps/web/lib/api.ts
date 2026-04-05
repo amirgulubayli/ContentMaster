@@ -8,15 +8,6 @@ import type {
   Project,
   QueueItem
 } from "@content-empire/shared";
-import {
-  seedAccounts,
-  seedAlerts,
-  seedAudit,
-  seedContent,
-  seedInbox,
-  seedProjects,
-  seedQueue
-} from "@content-empire/shared";
 
 const apiBaseUrl = process.env.API_URL ?? "http://127.0.0.1:4000";
 
@@ -37,11 +28,11 @@ async function getJson<T>(path: string, fallback: T): Promise<T> {
 }
 
 export function getProjects() {
-  return getJson<Project[]>("/api/projects", seedProjects);
+  return getJson<Project[]>("/api/projects", []);
 }
 
 export function getAccounts() {
-  return getJson<Account[]>("/api/accounts", seedAccounts);
+  return getJson<Account[]>("/api/accounts", []);
 }
 
 export function getSessionVault() {
@@ -63,32 +54,32 @@ export function getSessionVault() {
 
 export function getAlerts() {
   return getJson<DashboardSnapshot>("/api/dashboard", {
-    projects: seedProjects,
-    accounts: seedAccounts,
-    alerts: seedAlerts,
-    queue: seedQueue,
-    audit: seedAudit
+    projects: [],
+    accounts: [],
+    alerts: [],
+    queue: [],
+    audit: []
   }).then((snapshot) => snapshot.alerts);
 }
 
 export function getQueue() {
-  return getJson<QueueItem[]>("/api/queue", seedQueue);
+  return getJson<QueueItem[]>("/api/queue", []);
 }
 
 export function getAudit() {
   return getJson<DashboardSnapshot>("/api/dashboard", {
-    projects: seedProjects,
-    accounts: seedAccounts,
-    alerts: seedAlerts,
-    queue: seedQueue,
-    audit: seedAudit
+    projects: [],
+    accounts: [],
+    alerts: [],
+    queue: [],
+    audit: []
   }).then((snapshot) => snapshot.audit);
 }
 
 export function getContent() {
-  return getJson<ContentCard[]>("/api/content", seedContent);
+  return getJson<ContentCard[]>("/api/content", []);
 }
 
 export function getInbox() {
-  return getJson<InboxItem[]>("/api/inbox", seedInbox);
+  return getJson<InboxItem[]>("/api/inbox", []);
 }
