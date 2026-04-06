@@ -127,6 +127,7 @@ When importing a bundle:
 - the bundle is validated against the expected schema
 - the app stores it encrypted server-side
 - the UI only exposes safe metadata such as cookie count, storage mode, version, and source
+- the preferred input is the full authenticated browser-state JSON, not a tiny hand-picked cookie subset
 
 ### Content Studio
 
@@ -221,14 +222,13 @@ The setup form renders the platform fields directly.
 
 The agent should fill:
 
-- API client IDs
-- API client secrets
-- callback URLs
 - app passwords
-- page or business IDs
+- page or business IDs when the platform actually needs an account-specific ID
 - capture mode
 - login hints or publication URLs
 - workflow override JSON when the default browser selectors or routes for a session-backed workflow need to be tuned for a specific account
+
+The agent should not fill global provider client IDs or secrets on account pages. Those belong in the VPS `.env`.
 
 The readiness panel will immediately reflect what is still missing after save.
 

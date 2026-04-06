@@ -75,6 +75,23 @@ Main private URL:
 
 ## 4. Core Operator Workflow
 
+### Before you touch any account
+
+Split credentials into two buckets:
+
+- VPS `.env` only:
+  - provider app IDs
+  - provider client secrets
+  - global callback-domain settings
+- Account page only:
+  - app passwords
+  - account-specific IDs
+  - capture mode
+  - workflow override JSON
+  - operator notes
+
+Do not paste global provider client secrets into individual account records.
+
 ### Create a project
 
 1. Open `Connect`
@@ -118,8 +135,14 @@ The session bundle JSON should include:
     "locale": "en-GB"
   },
   "profileObjectKey": null
-}
+} 
 ```
+
+Important rule:
+
+- do not try to hand-pick only one or two cookies unless you already know exactly what you are doing
+- the preferred import path is the full authenticated browser-state JSON
+- that means cookies plus any local/session storage and fingerprint values the app captured
 
 General capture flow:
 
@@ -144,6 +167,11 @@ Use official auth first.
 5. Run OAuth from the account page.
 6. Optionally attach a session bundle as fallback.
 
+Cookie fallback rule:
+
+- import the full browser-state JSON
+- do not try to maintain X with manually copied single-cookie values
+
 ### LinkedIn
 
 Use official auth for posting and cookies for everything else.
@@ -155,6 +183,11 @@ Use official auth for posting and cookies for everything else.
 4. Put `clientId`, `clientSecret`, and `callbackUrl` into the account setup form.
 5. Run OAuth from the account page.
 6. Also attach a session bundle if you want comments, inbox, or DM workflows.
+
+Cookie rule:
+
+- import the full browser-state JSON
+- the messaging and feed surfaces may rely on more than raw cookies alone
 
 ### Bluesky
 
@@ -176,6 +209,11 @@ Run session-first for now.
 4. Add `workflowOverridesJson` only if Pinterest selectors need tuning.
 5. Certify the account.
 
+Cookie rule:
+
+- import the full browser-state JSON
+- do not optimize for a tiny cookie subset
+
 ### Reddit
 
 Run session-first for now.
@@ -185,6 +223,11 @@ Run session-first for now.
 3. Import the bundle in `Session Vault`.
 4. Add `workflowOverridesJson` only if submit/comment/inbox selectors need tuning.
 5. Certify the account.
+
+Cookie rule:
+
+- import the full browser-state JSON
+- do not optimize for a tiny cookie subset
 
 ### Medium / Substack / Quora
 
@@ -196,6 +239,11 @@ These are session-first.
 4. Import the bundle in `Session Vault`.
 5. Add workflow overrides only if the site selectors differ from defaults.
 6. Certify the account.
+
+Cookie rule:
+
+- import the full browser-state JSON
+- preserve cookies plus storage values
 
 ### Meta / TikTok / YouTube
 
@@ -281,4 +329,3 @@ If a session-backed account fails:
 2. Check `Session Vault` health state.
 3. Review account notes and workflow override JSON.
 4. Re-run certification.
-

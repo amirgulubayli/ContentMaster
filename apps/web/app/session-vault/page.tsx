@@ -187,6 +187,8 @@ export default async function SessionVaultPage() {
                 <p>Recommended mode: {guide.recommendedMode}</p>
                 <p>{guide.currentPriority}</p>
                 {guide.cookieGuide?.length ? <p>{guide.cookieGuide[0]}</p> : <p>No cookie guidance needed for this account.</p>}
+                {guide.bundleRequirement?.length ? <p>{guide.bundleRequirement[0]}</p> : null}
+                {guide.sessionWizard ? <p>Wizard: {guide.sessionWizard.title}</p> : null}
                 <p>
                   <Link href={`/accounts/${account.id}`} prefetch={false}>
                     Open full setup instructions

@@ -36,6 +36,7 @@ function FieldInput({
           defaultValue={defaultValue}
           placeholder={placeholder}
           required={field.required}
+          title={field.help}
         />
         <small>{field.help}</small>
       </label>
@@ -46,7 +47,7 @@ function FieldInput({
     return (
       <label className="field-block">
         <span>{field.label}</span>
-        <select name={name} defaultValue={currentValue ?? field.options?.[0] ?? ""} required={field.required}>
+        <select name={name} defaultValue={currentValue ?? field.options?.[0] ?? ""} required={field.required} title={field.help}>
           {(field.options ?? []).map((option) => (
             <option key={option} value={option}>
               {option}
@@ -67,6 +68,7 @@ function FieldInput({
         defaultValue={defaultValue}
         placeholder={placeholder}
         required={field.required}
+        title={field.help}
       />
       <small>{field.help}</small>
     </label>
@@ -282,7 +284,7 @@ export default async function AccountDetailPage({
       <section className="panel">
         <header className="panel-header">
           <h2>Setup instructions</h2>
-          <p>Operator instructions for how to gather credentials, cookies, or app passwords for this platform.</p>
+          <p>Only gather the things that actually belong on this account. Global provider secrets stay on the VPS.</p>
         </header>
         <div className="stack-column">
           <article className="platform-card">
@@ -292,9 +294,32 @@ export default async function AccountDetailPage({
             <p>{guide.status}</p>
             {guide.callbackUrl ? <p>Callback URL: {guide.callbackUrl}</p> : null}
           </article>
+          {guide.envManagedCredentials?.length ? (
+            <article className="platform-card">
+              <strong>VPS .env credentials</strong>
+              <p>These are global provider secrets. They should be set once on the VPS and not copied into this account form.</p>
+              <div className="feature-stack">
+                {guide.envManagedCredentials.map((key) => (
+                  <span className="feature-pill" key={key}>
+                    {key}
+                  </span>
+                ))}
+              </div>
+            </article>
+          ) : null}
+          {guide.accountFields?.length ? (
+            <article className="platform-card">
+              <strong>What belongs on this account</strong>
+              <ul className="ordered-list compact-list">
+                {guide.accountFields.map((field) => (
+                  <li key={field}>{field}</li>
+                ))}
+              </ul>
+            </article>
+          ) : null}
           {guide.authGuide?.length ? (
             <details className="platform-card">
-              <summary>How to get auth credentials</summary>
+              <summary>How to finish auth or app-password setup</summary>
               <ol className="ordered-list compact-list">
                 {guide.authGuide.map((step) => (
                   <li key={step}>{step}</li>
@@ -304,13 +329,41 @@ export default async function AccountDetailPage({
           ) : null}
           {guide.cookieGuide?.length ? (
             <details className="platform-card">
-              <summary>How to get cookies or session bundle</summary>
+              <summary>How to get the session bundle</summary>
               <ol className="ordered-list compact-list">
                 {guide.cookieGuide.map((step) => (
                   <li key={step}>{step}</li>
                 ))}
               </ol>
             </details>
+          ) : null}
+          {guide.sessionWizard ? (
+            <article className="platform-card">
+              <strong>{guide.sessionWizard.title}</strong>
+              <p>Safe import flow for this platform. The app expects a full authenticated browser-state bundle, not manually copied cookie strings.</p>
+              <p className="section-label">Steps</p>
+              <ol className="ordered-list compact-list">
+                {guide.sessionWizard.steps.map((step) => (
+                  <li key={step}>{step}</li>
+                ))}
+              </ol>
+              <p className="section-label">Before import, verify</p>
+              <ul className="ordered-list compact-list">
+                {guide.sessionWizard.checks.map((check) => (
+                  <li key={check}>{check}</li>
+                ))}
+              </ul>
+            </article>
+          ) : null}
+          {guide.bundleRequirement?.length ? (
+            <article className="platform-card">
+              <strong>Bundle requirement</strong>
+              <ul className="ordered-list compact-list">
+                {guide.bundleRequirement.map((item) => (
+                  <li key={item}>{item}</li>
+                ))}
+              </ul>
+            </article>
           ) : null}
           {guide.credentialNotes?.length ? (
             <article className="platform-card">
@@ -373,7 +426,14 @@ export default async function AccountDetailPage({
                 ))}
               </div>
             </section>
-          ) : null}
+          ) : (
+            <section className="subpanel">
+              <h3>API / OAuth config</h3>
+              <p className="empty-state">
+                This account does not need per-account API secret fields here. Use the Provider auth section and keep global provider secrets in the VPS `.env`.
+              </p>
+            </section>
+          )}
 
           {blueprint.sessionFields.length > 0 ? (
             <section className="subpanel">
@@ -389,7 +449,12 @@ export default async function AccountDetailPage({
                 ))}
               </div>
             </section>
-          ) : null}
+          ) : (
+            <section className="subpanel">
+              <h3>Session config</h3>
+              <p className="empty-state">This platform does not need a session bundle for the current operating path.</p>
+            </section>
+          )}
 
           <label className="field-block">
             <span>Operator notes</span>

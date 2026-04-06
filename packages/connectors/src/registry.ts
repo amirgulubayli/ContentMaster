@@ -201,11 +201,7 @@ export const platformSetupBlueprints: Record<Platform, PlatformSetupBlueprint> =
   x: {
     platform: "x",
     supportedModes: ["api_auth", "hybrid_auth"],
-    apiFields: apiFields(
-      { key: "clientId", label: "Client ID", kind: "text", required: true, help: "X app client ID." },
-      { key: "clientSecret", label: "Client Secret", kind: "password", required: true, help: "X app client secret." },
-      { key: "callbackUrl", label: "Callback URL", kind: "url", required: true, help: "Redirect URI configured in the X app." }
-    ),
+    apiFields: apiFields(),
     sessionFields: sessionFields(
       { key: "captureMode", label: "Capture Mode", kind: "select", required: false, help: "Only needed if hybrid fallback is enabled.", options: ["cookies_only", "bundle", "profile"] },
       workflowOverridesField
@@ -220,11 +216,7 @@ export const platformSetupBlueprints: Record<Platform, PlatformSetupBlueprint> =
   linkedin: {
     platform: "linkedin",
     supportedModes: ["api_auth", "hybrid_auth"],
-    apiFields: apiFields(
-      { key: "clientId", label: "Client ID", kind: "text", required: true, help: "LinkedIn app client ID." },
-      { key: "clientSecret", label: "Client Secret", kind: "password", required: true, help: "LinkedIn app client secret." },
-      { key: "callbackUrl", label: "Callback URL", kind: "url", required: true, help: "LinkedIn redirect URI." }
-    ),
+    apiFields: apiFields(),
     sessionFields: sessionFields(
       { key: "captureMode", label: "Capture Mode", kind: "select", required: false, help: "Use if LinkedIn should also run non-posting workflows through cookies.", options: ["cookies_only", "bundle", "profile"] },
       workflowOverridesField
@@ -275,11 +267,7 @@ export const platformSetupBlueprints: Record<Platform, PlatformSetupBlueprint> =
   reddit: {
     platform: "reddit",
     supportedModes: ["session_auth", "hybrid_auth", "api_auth"],
-    apiFields: apiFields(
-      { key: "clientId", label: "Client ID", kind: "text", required: true, help: "Reddit app client ID." },
-      { key: "clientSecret", label: "Client Secret", kind: "password", required: true, help: "Reddit app client secret." },
-      { key: "callbackUrl", label: "Callback URL", kind: "url", required: true, help: "Reddit redirect URI." }
-    ),
+    apiFields: apiFields(),
     sessionFields: sessionFields(
       { key: "captureMode", label: "Capture Mode", kind: "select", required: true, help: "Use session mode as the main Reddit path for now.", options: ["cookies_only", "bundle", "profile"] },
       workflowOverridesField
@@ -305,11 +293,7 @@ export const platformSetupBlueprints: Record<Platform, PlatformSetupBlueprint> =
   pinterest: {
     platform: "pinterest",
     supportedModes: ["session_auth", "api_auth", "hybrid_auth"],
-    apiFields: apiFields(
-      { key: "appId", label: "App ID", kind: "text", required: true, help: "Pinterest app ID." },
-      { key: "appSecret", label: "App Secret", kind: "password", required: true, help: "Pinterest app secret." },
-      { key: "callbackUrl", label: "Callback URL", kind: "url", required: true, help: "Pinterest redirect URI." }
-    ),
+    apiFields: apiFields(),
     sessionFields: sessionFields(
       { key: "captureMode", label: "Capture Mode", kind: "select", required: true, help: "Use session mode as the main Pinterest path for now.", options: ["cookies_only", "bundle", "profile"] },
       workflowOverridesField
@@ -325,9 +309,6 @@ export const platformSetupBlueprints: Record<Platform, PlatformSetupBlueprint> =
     platform: "facebook",
     supportedModes: ["api_auth", "hybrid_auth"],
     apiFields: apiFields(
-      { key: "appId", label: "App ID", kind: "text", required: true, help: "Meta app ID." },
-      { key: "appSecret", label: "App Secret", kind: "password", required: true, help: "Meta app secret." },
-      { key: "callbackUrl", label: "Callback URL", kind: "url", required: true, help: "Meta redirect URI." },
       { key: "pageId", label: "Page ID", kind: "text", required: false, help: "Target Facebook Page ID." }
     ),
     sessionFields: sessionFields(
@@ -341,9 +322,6 @@ export const platformSetupBlueprints: Record<Platform, PlatformSetupBlueprint> =
     platform: "instagram",
     supportedModes: ["api_auth", "hybrid_auth"],
     apiFields: apiFields(
-      { key: "appId", label: "App ID", kind: "text", required: true, help: "Meta app ID." },
-      { key: "appSecret", label: "App Secret", kind: "password", required: true, help: "Meta app secret." },
-      { key: "callbackUrl", label: "Callback URL", kind: "url", required: true, help: "Meta redirect URI." },
       { key: "instagramBusinessId", label: "Instagram Business ID", kind: "text", required: false, help: "Business account ID if known." }
     ),
     sessionFields: sessionFields(
@@ -356,11 +334,7 @@ export const platformSetupBlueprints: Record<Platform, PlatformSetupBlueprint> =
   tiktok: {
     platform: "tiktok",
     supportedModes: ["api_auth", "hybrid_auth"],
-    apiFields: apiFields(
-      { key: "clientKey", label: "Client Key", kind: "text", required: true, help: "TikTok app client key." },
-      { key: "clientSecret", label: "Client Secret", kind: "password", required: true, help: "TikTok app client secret." },
-      { key: "callbackUrl", label: "Callback URL", kind: "url", required: true, help: "TikTok redirect URI." }
-    ),
+    apiFields: apiFields(),
     sessionFields: sessionFields(
       { key: "captureMode", label: "Capture Mode", kind: "select", required: false, help: "Needed for hybrid mode.", options: ["cookies_only", "bundle", "profile"] },
       workflowOverridesField
@@ -371,11 +345,7 @@ export const platformSetupBlueprints: Record<Platform, PlatformSetupBlueprint> =
   youtube: {
     platform: "youtube",
     supportedModes: ["api_auth"],
-    apiFields: apiFields(
-      { key: "clientId", label: "Client ID", kind: "text", required: true, help: "Google OAuth client ID." },
-      { key: "clientSecret", label: "Client Secret", kind: "password", required: true, help: "Google OAuth client secret." },
-      { key: "callbackUrl", label: "Callback URL", kind: "url", required: true, help: "Google redirect URI." }
-    ),
+    apiFields: apiFields(),
     sessionFields: [],
     notes: ["OAuth-based setup for Shorts upload and comments.", "Provider execution is wired."],
     liveExecutionImplemented: true
@@ -431,6 +401,8 @@ export function getAccountSetupReadiness(
   const sessionCaptureNeeded =
     setup.connectorMode !== "api_auth" && (account.sessionRequired || requiredFields.sessionFields.length > 0);
   const sessionCaptured = !sessionCaptureNeeded || account.sessionHealth === "healthy";
+  const officialAuthNeeded = setup.connectorMode !== "session_auth" && requiredFields.apiFields.length === 0;
+  const officialAuthReady = !officialAuthNeeded || account.authStatus !== "not_started";
 
   const blockers: string[] = [];
   if (missingApiFields.length > 0) {
@@ -441,6 +413,9 @@ export function getAccountSetupReadiness(
   }
   if (sessionCaptureNeeded && !sessionCaptured) {
     blockers.push("Session bundle has not been captured or is not healthy.");
+  }
+  if (officialAuthNeeded && !officialAuthReady) {
+    blockers.push("Official provider auth has not been completed yet.");
   }
   if (!profile.liveExecutionImplemented) {
     blockers.push("Live connector execution is still scaffolded, not fully implemented.");
@@ -453,17 +428,20 @@ export function getAccountSetupReadiness(
   if (sessionCaptureNeeded && !sessionCaptured) {
     nextSteps.push("Capture or refresh the encrypted session bundle.");
   }
-  if (configComplete && sessionCaptured && account.authStatus !== "certified") {
+  if (officialAuthNeeded && !officialAuthReady) {
+    nextSteps.push("Start official auth from the Provider auth section.");
+  }
+  if (configComplete && sessionCaptured && officialAuthReady && account.authStatus !== "certified") {
     nextSteps.push("Run account certification after setup is complete.");
   }
-  if (configComplete && sessionCaptured && account.authStatus === "certified" && !profile.liveExecutionImplemented) {
+  if (configComplete && sessionCaptured && officialAuthReady && account.authStatus === "certified" && !profile.liveExecutionImplemented) {
     nextSteps.push("Keep the account in review mode until the live connector is implemented.");
   }
-  if (configComplete && sessionCaptured && account.authStatus === "certified" && profile.liveExecutionImplemented) {
+  if (configComplete && sessionCaptured && officialAuthReady && account.authStatus === "certified" && profile.liveExecutionImplemented) {
     nextSteps.push("OpenClaw can be enabled for real execution on this account.");
   }
 
-  const canCertify = configComplete && sessionCaptured;
+  const canCertify = configComplete && sessionCaptured && officialAuthReady;
   const canEnableOpenClaw = canCertify && account.authStatus === "certified" && profile.liveExecutionImplemented;
 
   return {
