@@ -361,9 +361,9 @@ export async function getContentStudioSnapshot(): Promise<ContentStudioSnapshot>
       status: project.status,
       dailyOptimizationEnabled: project.dailyOptimizationEnabled
     })) as Project[],
-    assets: assets.map((asset) => mapMediaAsset(asset as MediaAssetRecord)),
-    editJobs: editJobs.map((job) => mapEditJob(job as EditJobRecord)),
-    content: content.map((item) => mapContentCard(item as ContentItemRecord)),
+    assets: assets.map((asset: unknown) => mapMediaAsset(asset as MediaAssetRecord)),
+    editJobs: editJobs.map((job: unknown) => mapEditJob(job as EditJobRecord)),
+    content: content.map((item: unknown) => mapContentCard(item as ContentItemRecord)),
     stats: {
       assetCount: assets.length,
       analyzedAssetCount: assets.filter((asset: { transcriptStatus: string }) => asset.transcriptStatus === "ready").length,
