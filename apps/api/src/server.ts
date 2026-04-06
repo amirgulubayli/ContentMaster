@@ -65,18 +65,28 @@ import {
   uploadYoutubeVideo
 } from "./platform-execution.js";
 import {
+  analyzeMediaAssetRecord,
+  createEditJobRecord,
+  createMediaAssetRecord,
+  getContentStudioSnapshot,
+  streamMediaAsset
+} from "./content-hub.js";
+import {
   captureSessionSchema,
   certifyAccountSchema,
   connectAccountSchema,
+  createEditJobSchema,
   createAccountSchema,
   createProjectSchema,
   importSessionBundleSchema,
+  analyzeMediaAssetSchema,
   updateAccountSetupSchema,
   openClawActionSchema,
-  queueActionSchema
+  queueActionSchema,
+  uploadMediaAssetSchema
 } from "./schemas.js";
 import { buildSessionWorkflow } from "./session-workflows.js";
-import { appendAudit, state } from "./state.js";
+import { appendAudit, persistState, state } from "./state.js";
 
 const app = Fastify({
   logger: true
@@ -355,6 +365,7 @@ app.post("/api/projects", async (request, reply) => {
   };
 
   state.projects.push(project);
+  persistState();
   return project;
 });
 
@@ -398,6 +409,7 @@ app.post("/api/accounts", async (request, reply) => {
     notes: "",
     updatedAt: new Date().toISOString()
   };
+  persistState();
   return account;
 });
 
@@ -521,6 +533,7 @@ app.get("/api/auth/:platform/start", async (request, reply) => {
   };
 
   if (params.platform === "meta") {
+    persistState();
     const authUrl = buildMetaAuthUrl();
     authUrl.searchParams.set("client_id", process.env.META_APP_ID ?? "");
     authUrl.searchParams.set("redirect_uri", buildMetaRedirectUri());
@@ -545,6 +558,7 @@ app.get("/api/auth/:platform/start", async (request, reply) => {
 
   const authUrl = buildTikTokAuthUrl();
   if (params.platform === "tiktok") {
+    persistState();
     authUrl.searchParams.set("client_key", process.env.TIKTOK_CLIENT_KEY ?? "");
     authUrl.searchParams.set("redirect_uri", buildTikTokRedirectUri());
     authUrl.searchParams.set("response_type", "code");
@@ -556,6 +570,7 @@ app.get("/api/auth/:platform/start", async (request, reply) => {
   if (params.platform === "x") {
     const codeVerifier = buildPkceVerifier();
     state.oauthStates[oauthState].codeVerifier = codeVerifier;
+    persistState();
     const xUrl = buildXAuthUrl();
     xUrl.searchParams.set("response_type", "code");
     xUrl.searchParams.set("client_id", process.env.X_CLIENT_ID ?? "");
@@ -568,6 +583,7 @@ app.get("/api/auth/:platform/start", async (request, reply) => {
   }
 
   if (params.platform === "linkedin") {
+    persistState();
     const linkedInUrl = buildLinkedInAuthUrl();
     linkedInUrl.searchParams.set("response_type", "code");
     linkedInUrl.searchParams.set("client_id", process.env.LINKEDIN_CLIENT_ID ?? "");
@@ -578,6 +594,7 @@ app.get("/api/auth/:platform/start", async (request, reply) => {
   }
 
   if (params.platform === "reddit") {
+    persistState();
     const redditUrl = buildRedditAuthUrl();
     redditUrl.searchParams.set("client_id", process.env.REDDIT_CLIENT_ID ?? "");
     redditUrl.searchParams.set("response_type", "code");
@@ -589,6 +606,7 @@ app.get("/api/auth/:platform/start", async (request, reply) => {
   }
 
   if (params.platform === "pinterest") {
+    persistState();
     const pinterestUrl = buildPinterestAuthUrl();
     pinterestUrl.searchParams.set("client_id", process.env.PINTEREST_APP_ID ?? "");
     pinterestUrl.searchParams.set("redirect_uri", buildGenericRedirectUri("pinterest"));
@@ -599,6 +617,7 @@ app.get("/api/auth/:platform/start", async (request, reply) => {
   }
 
   const googleUrl = buildGoogleAuthUrl();
+  persistState();
   googleUrl.searchParams.set("client_id", process.env.GOOGLE_CLIENT_ID ?? "");
   googleUrl.searchParams.set("redirect_uri", buildGenericRedirectUri("google"));
   googleUrl.searchParams.set("response_type", "code");
@@ -624,6 +643,7 @@ app.get("/api/oauth/meta/callback", async (request, reply) => {
 
   const pending = state.oauthStates[query.state];
   delete state.oauthStates[query.state];
+  persistState();
 
   const account = state.accounts.find((item) => item.id === pending.accountId);
   if (!account) {
@@ -701,6 +721,7 @@ app.get("/api/oauth/tiktok/callback", async (request, reply) => {
 
   const pending = state.oauthStates[query.state];
   delete state.oauthStates[query.state];
+  persistState();
 
   const account = state.accounts.find((item) => item.id === pending.accountId);
   if (!account) {
@@ -760,6 +781,7 @@ app.get("/api/oauth/x/callback", async (request, reply) => {
 
   const pending = state.oauthStates[query.state];
   delete state.oauthStates[query.state];
+  persistState();
   const account = state.accounts.find((item) => item.id === pending.accountId);
   if (!account) {
     reply.code(404);
@@ -809,6 +831,7 @@ app.get("/api/oauth/linkedin/callback", async (request, reply) => {
 
   const pending = state.oauthStates[query.state];
   delete state.oauthStates[query.state];
+  persistState();
   const account = state.accounts.find((item) => item.id === pending.accountId);
   if (!account) {
     reply.code(404);
@@ -862,6 +885,7 @@ app.get("/api/oauth/reddit/callback", async (request, reply) => {
 
   const pending = state.oauthStates[query.state];
   delete state.oauthStates[query.state];
+  persistState();
   const account = state.accounts.find((item) => item.id === pending.accountId);
   if (!account) {
     reply.code(404);
@@ -912,6 +936,7 @@ app.get("/api/oauth/pinterest/callback", async (request, reply) => {
 
   const pending = state.oauthStates[query.state];
   delete state.oauthStates[query.state];
+  persistState();
   const account = state.accounts.find((item) => item.id === pending.accountId);
   if (!account) {
     reply.code(404);
@@ -962,6 +987,7 @@ app.get("/api/oauth/google/callback", async (request, reply) => {
 
   const pending = state.oauthStates[query.state];
   delete state.oauthStates[query.state];
+  persistState();
   const account = state.accounts.find((item) => item.id === pending.accountId);
   if (!account) {
     reply.code(404);
@@ -1501,7 +1527,141 @@ app.post("/api/accounts/certify", async (request, reply) => {
   return certification;
 });
 
-app.get("/api/content", async () => state.content);
+app.get("/api/content-studio", async (_request, reply) => {
+  try {
+    return await getContentStudioSnapshot();
+  } catch (error) {
+    app.log.error(error);
+    reply.code(503);
+    return { error: "Content studio storage is unavailable." };
+  }
+});
+
+app.post("/api/content-studio/assets", async (request, reply) => {
+  const parsed = uploadMediaAssetSchema.safeParse(request.body);
+  if (!parsed.success) {
+    reply.code(400);
+    return { error: "Invalid media upload payload", issues: parsed.error.issues };
+  }
+
+  try {
+    const asset = await createMediaAssetRecord({
+      projectId: parsed.data.projectId,
+      title: parsed.data.title,
+      description: parsed.data.description,
+      mediaKind: parsed.data.mediaKind,
+      filename: parsed.data.filename,
+      contentType: parsed.data.contentType,
+      bytes: Buffer.from(parsed.data.dataBase64, "base64"),
+      tags: parsed.data.tags,
+      transcriptHint: parsed.data.transcriptHint
+    });
+
+    appendAudit({
+      id: `audit_${Date.now()}`,
+      actor: "Operator",
+      action: "upload_media_asset",
+      subject: asset.title,
+      status: "success",
+      createdAt: new Date().toISOString(),
+      detail: `Stored ${asset.mediaKind} asset in durable media storage.`
+    });
+
+    return asset;
+  } catch (error) {
+    reply.code(500);
+    return {
+      error: "Failed to persist media asset.",
+      detail: error instanceof Error ? error.message : "Unknown upload error"
+    };
+  }
+});
+
+app.post("/api/content-studio/assets/analyze", async (request, reply) => {
+  const parsed = analyzeMediaAssetSchema.safeParse(request.body);
+  if (!parsed.success) {
+    reply.code(400);
+    return { error: "Invalid asset analysis payload", issues: parsed.error.issues };
+  }
+
+  try {
+    const asset = await analyzeMediaAssetRecord(parsed.data.assetId, parsed.data.transcriptHint);
+
+    appendAudit({
+      id: `audit_${Date.now()}`,
+      actor: "Operator",
+      action: "analyze_media_asset",
+      subject: asset.title,
+      status: "success",
+      createdAt: new Date().toISOString(),
+      detail: `Generated transcript cache, highlights, and vector metadata for ${asset.mediaKind}.`
+    });
+
+    return asset;
+  } catch (error) {
+    reply.code(500);
+    return {
+      error: "Failed to analyze media asset.",
+      detail: error instanceof Error ? error.message : "Unknown analysis error"
+    };
+  }
+});
+
+app.get("/api/content-studio/assets/:assetId/download", async (request, reply) => {
+  const params = request.params as { assetId: string };
+
+  try {
+    const media = await streamMediaAsset(params.assetId);
+    reply.header("Content-Type", media.contentType);
+    reply.header("Content-Disposition", `inline; filename="${media.asset.originalFilename}"`);
+    return reply.send(media.body as never);
+  } catch (error) {
+    reply.code(404);
+    return {
+      error: "Media asset not found",
+      detail: error instanceof Error ? error.message : "Unknown media retrieval error"
+    };
+  }
+});
+
+app.post("/api/content-studio/edit-jobs", async (request, reply) => {
+  const parsed = createEditJobSchema.safeParse(request.body);
+  if (!parsed.success) {
+    reply.code(400);
+    return { error: "Invalid edit job payload", issues: parsed.error.issues };
+  }
+
+  try {
+    const editJob = await createEditJobRecord(parsed.data);
+
+    appendAudit({
+      id: `audit_${Date.now()}`,
+      actor: "Operator",
+      action: "create_edit_job",
+      subject: editJob.title,
+      status: "success",
+      createdAt: new Date().toISOString(),
+      detail: `Queued edit job with ${editJob.brollAssetIds.length} supporting assets.`
+    });
+
+    return editJob;
+  } catch (error) {
+    reply.code(500);
+    return {
+      error: "Failed to create edit job.",
+      detail: error instanceof Error ? error.message : "Unknown edit job error"
+    };
+  }
+});
+
+app.get("/api/content", async () => {
+  try {
+    const snapshot = await getContentStudioSnapshot();
+    return snapshot.content;
+  } catch {
+    return state.content;
+  }
+});
 
 app.get("/api/inbox", async () => state.inbox);
 
@@ -1532,6 +1692,7 @@ app.post("/api/queue", async (request, reply) => {
   };
 
   state.queue.unshift(queueItem);
+  persistState();
   return queueItem;
 });
 

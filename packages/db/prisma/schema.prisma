@@ -31,6 +31,12 @@ enum SessionHealth {
   revoked
 }
 
+enum AuthStatus {
+  not_started
+  configured
+  certified
+}
+
 enum AuditStatus {
   success
   warning
@@ -45,6 +51,31 @@ enum QueueType {
   session_refresh
 }
 
+enum MediaKind {
+  source_video
+  b_roll_video
+  image
+  audio
+  transcript
+  document
+  other
+}
+
+enum ProcessingStatus {
+  pending
+  processing
+  ready
+  failed
+}
+
+enum EditJobStatus {
+  queued
+  analyzing
+  rendering
+  completed
+  failed
+}
+
 model Project {
   id                       String    @id @default(cuid())
   slug                     String    @unique
@@ -57,6 +88,8 @@ model Project {
   updatedAt                DateTime  @updatedAt
   accounts                 PlatformAccount[]
   contents                 ContentItem[]
+  mediaAssets              MediaAsset[]
+  editJobs                 EditJob[]
 }
 
 model PlatformAccount {
@@ -68,6 +101,7 @@ model PlatformAccount {
   connectorMode     ConnectorMode
   automationMode    AutomationMode
   sessionHealth     SessionHealth
+  authStatus        AuthStatus      @default(not_started)
   lastAuthRefreshAt DateTime?
   lastPostAt        DateTime?
   sessionRequired   Boolean         @default(false)
@@ -82,6 +116,23 @@ model PlatformAccount {
   dmThreads         DmThread[]
   publishJobs       PublishJob[]
   alerts            Alert[]
+  setup             AccountSetup?
+  editJobs          EditJob[]
+}
+
+model AccountSetup {
+  id             String          @id @default(cuid())
+  accountId      String          @unique
+  connectorMode  ConnectorMode
+  automationMode AutomationMode
+  authStatus     AuthStatus      @default(not_started)
+  openClawEnabled Boolean        @default(false)
+  apiConfig      Json
+  sessionConfig  Json
+  notes          String
+  createdAt      DateTime        @default(now())
+  updatedAt      DateTime        @updatedAt
+  account        PlatformAccount @relation(fields: [accountId], references: [id], onDelete: Cascade)
 }
 
 model AccountFeature {
@@ -128,10 +179,12 @@ model ContentItem {
   contentType   String
   source        String
   status        String
+  metadata      Json?
   createdAt     DateTime     @default(now())
   updatedAt     DateTime     @updatedAt
   project       Project      @relation(fields: [projectId], references: [id], onDelete: Cascade)
   variants      ContentVariant[]
+  editJobs      EditJob[]
 }
 
 model ContentVariant {
@@ -201,4 +254,73 @@ model AuditEvent {
   status      AuditStatus
   detail      String
   createdAt   DateTime    @default(now())
+}
+
+model MediaAsset {
+  id                 String           @id @default(cuid())
+  projectId          String
+  title              String
+  description        String
+  mediaKind          MediaKind
+  mimeType           String
+  originalFilename   String
+  bucket             String
+  objectKey          String           @unique
+  sizeBytes          Int
+  durationSeconds    Float?
+  tags               Json
+  transcriptStatus   ProcessingStatus @default(pending)
+  transcript         String?
+  transcriptChecksum String?
+  analysisSummary    String?
+  sentiment          String?
+  keywords           Json?
+  highlights         Json?
+  embedding          Json?
+  createdAt          DateTime         @default(now())
+  updatedAt          DateTime         @updatedAt
+  project            Project          @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  sourceForJobs      EditJob[]        @relation("EditJobSourceAsset")
+  jobLinks           EditJobAsset[]
+}
+
+model EditJob {
+  id                String        @id @default(cuid())
+  projectId         String
+  accountId         String?
+  contentItemId     String?
+  title             String
+  sourceAssetId     String
+  includeCaptions   Boolean       @default(true)
+  status            EditJobStatus @default(queued)
+  instructions      String
+  aspectRatio       String
+  renderTemplate    String
+  transcriptSnapshot String?
+  selectedHighlights Json?
+  subtitleStyle     Json?
+  renderPlan        Json?
+  outputBucket      String?
+  outputObjectKey   String?
+  outputMimeType    String?
+  createdAt         DateTime      @default(now())
+  updatedAt         DateTime      @updatedAt
+  project           Project       @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  account           PlatformAccount? @relation(fields: [accountId], references: [id], onDelete: SetNull)
+  contentItem       ContentItem?  @relation(fields: [contentItemId], references: [id], onDelete: SetNull)
+  sourceAsset       MediaAsset    @relation("EditJobSourceAsset", fields: [sourceAssetId], references: [id], onDelete: Restrict)
+  brollAssets       EditJobAsset[]
+}
+
+model EditJobAsset {
+  id          String     @id @default(cuid())
+  editJobId   String
+  mediaAssetId String
+  role        String
+  sortOrder   Int        @default(0)
+  createdAt   DateTime   @default(now())
+  editJob     EditJob    @relation(fields: [editJobId], references: [id], onDelete: Cascade)
+  mediaAsset  MediaAsset @relation(fields: [mediaAssetId], references: [id], onDelete: Cascade)
+
+  @@unique([editJobId, mediaAssetId, role])
 }

@@ -201,6 +201,70 @@ export async function queueAction(formData: FormData) {
   redirect("/openclaw");
 }
 
+export async function uploadMediaAssetAction(formData: FormData) {
+  const file = formData.get("mediaFile");
+  if (!(file instanceof File) || file.size === 0) {
+    throw new Error("Select a media file to upload.");
+  }
+
+  const bytes = Buffer.from(await file.arrayBuffer()).toString("base64");
+  const rawTags = String(formData.get("tags") ?? "");
+  const tags = rawTags
+    .split(",")
+    .map((tag) => tag.trim())
+    .filter(Boolean);
+
+  await postJson("/api/content-studio/assets", {
+    projectId: formData.get("projectId"),
+    title: formData.get("title"),
+    description: formData.get("description"),
+    mediaKind: formData.get("mediaKind"),
+    filename: file.name,
+    contentType: file.type || "application/octet-stream",
+    tags,
+    transcriptHint: formData.get("transcriptHint"),
+    dataBase64: bytes
+  });
+
+  revalidatePath("/content-studio");
+  revalidatePath("/");
+  redirect("/content-studio");
+}
+
+export async function analyzeMediaAssetAction(formData: FormData) {
+  await postJson("/api/content-studio/assets/analyze", {
+    assetId: formData.get("assetId"),
+    transcriptHint: formData.get("transcriptHint")
+  });
+
+  revalidatePath("/content-studio");
+  redirect("/content-studio");
+}
+
+export async function createEditJobAction(formData: FormData) {
+  const rawBroll = String(formData.get("brollAssetIds") ?? "");
+  const brollAssetIds = rawBroll
+    .split(",")
+    .map((value) => value.trim())
+    .filter(Boolean);
+
+  await postJson("/api/content-studio/edit-jobs", {
+    projectId: formData.get("projectId"),
+    accountId: String(formData.get("accountId") ?? "").trim() || undefined,
+    title: formData.get("title"),
+    sourceAssetId: formData.get("sourceAssetId"),
+    brollAssetIds,
+    includeCaptions: formData.get("includeCaptions") === "on",
+    instructions: formData.get("instructions"),
+    aspectRatio: formData.get("aspectRatio"),
+    renderTemplate: formData.get("renderTemplate")
+  });
+
+  revalidatePath("/content-studio");
+  revalidatePath("/audit");
+  redirect("/content-studio");
+}
+
 export async function openClawAction(formData: FormData) {
   const token = process.env.INTERNAL_MACHINE_TOKEN;
   if (!token) {

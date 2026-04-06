@@ -239,6 +239,102 @@ export const contentCardSchema = z.object({
 
 export type ContentCard = z.infer<typeof contentCardSchema>;
 
+export const mediaKindSchema = z.enum([
+  "source_video",
+  "b_roll_video",
+  "image",
+  "audio",
+  "transcript",
+  "document",
+  "other"
+]);
+
+export type MediaKind = z.infer<typeof mediaKindSchema>;
+
+export const processingStatusSchema = z.enum(["pending", "processing", "ready", "failed"]);
+export type ProcessingStatus = z.infer<typeof processingStatusSchema>;
+
+export const editJobStatusSchema = z.enum(["queued", "analyzing", "rendering", "completed", "failed"]);
+export type EditJobStatus = z.infer<typeof editJobStatusSchema>;
+
+export const highlightSchema = z.object({
+  label: z.string(),
+  rationale: z.string(),
+  score: z.number(),
+  sourceText: z.string()
+});
+
+export type Highlight = z.infer<typeof highlightSchema>;
+
+export const mediaAssetSchema = z.object({
+  id: z.string(),
+  projectId: z.string(),
+  projectName: z.string(),
+  title: z.string(),
+  description: z.string(),
+  mediaKind: mediaKindSchema,
+  mimeType: z.string(),
+  originalFilename: z.string(),
+  bucket: z.string(),
+  objectKey: z.string(),
+  objectUrl: z.string(),
+  sizeBytes: z.number(),
+  durationSeconds: z.number().nullable(),
+  tags: z.array(z.string()),
+  transcriptStatus: processingStatusSchema,
+  transcript: z.string().nullable(),
+  analysisSummary: z.string().nullable(),
+  sentiment: z.string().nullable(),
+  keywords: z.array(z.string()),
+  highlights: z.array(highlightSchema),
+  createdAt: z.string(),
+  updatedAt: z.string()
+});
+
+export type MediaAsset = z.infer<typeof mediaAssetSchema>;
+
+export const editJobSchema = z.object({
+  id: z.string(),
+  projectId: z.string(),
+  projectName: z.string(),
+  accountId: z.string().nullable(),
+  accountDisplayName: z.string().nullable(),
+  contentItemId: z.string().nullable(),
+  title: z.string(),
+  sourceAssetId: z.string(),
+  sourceAssetTitle: z.string(),
+  brollAssetIds: z.array(z.string()),
+  brollAssetTitles: z.array(z.string()),
+  includeCaptions: z.boolean(),
+  status: editJobStatusSchema,
+  instructions: z.string(),
+  aspectRatio: z.string(),
+  renderTemplate: z.string(),
+  transcriptSnapshot: z.string().nullable(),
+  selectedHighlights: z.array(highlightSchema),
+  outputObjectKey: z.string().nullable(),
+  outputUrl: z.string().nullable(),
+  createdAt: z.string(),
+  updatedAt: z.string()
+});
+
+export type EditJob = z.infer<typeof editJobSchema>;
+
+export const contentStudioSnapshotSchema = z.object({
+  projects: z.array(projectSchema),
+  assets: z.array(mediaAssetSchema),
+  editJobs: z.array(editJobSchema),
+  content: z.array(contentCardSchema),
+  stats: z.object({
+    assetCount: z.number(),
+    analyzedAssetCount: z.number(),
+    editJobCount: z.number(),
+    renderedJobCount: z.number()
+  })
+});
+
+export type ContentStudioSnapshot = z.infer<typeof contentStudioSnapshotSchema>;
+
 export const inboxItemSchema = z.object({
   id: z.string(),
   accountId: z.string(),

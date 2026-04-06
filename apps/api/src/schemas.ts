@@ -64,4 +64,33 @@ export const importSessionBundleSchema = z.object({
   bundle: sessionBundleSchema
 });
 
+export const uploadMediaAssetSchema = z.object({
+  projectId: z.string(),
+  title: z.string().min(2),
+  description: z.string().default(""),
+  mediaKind: z.enum(["source_video", "b_roll_video", "image", "audio", "transcript", "document", "other"]),
+  filename: z.string().min(1),
+  contentType: z.string().min(1),
+  tags: z.array(z.string()).default([]),
+  transcriptHint: z.string().optional(),
+  dataBase64: z.string().min(1)
+});
+
+export const analyzeMediaAssetSchema = z.object({
+  assetId: z.string(),
+  transcriptHint: z.string().optional()
+});
+
+export const createEditJobSchema = z.object({
+  projectId: z.string(),
+  accountId: z.string().optional(),
+  title: z.string().min(2),
+  sourceAssetId: z.string(),
+  brollAssetIds: z.array(z.string()).default([]),
+  includeCaptions: z.boolean().default(true),
+  instructions: z.string().min(2),
+  aspectRatio: z.string().default("9:16"),
+  renderTemplate: z.string().default("slideshow")
+});
+
 export { openClawActionSchema };

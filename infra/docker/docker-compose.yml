@@ -50,8 +50,17 @@ services:
         WORKSPACE: "@content-empire/api"
     container_name: content-empire-api
     restart: unless-stopped
+    command: sh -c "npx prisma db push --schema packages/db/prisma/schema.prisma && npm run start --workspace @content-empire/api"
     env_file:
       - ../../.env
+    environment:
+      DATABASE_URL: postgresql://contentempire:contentempire@postgres:5432/contentempire?schema=public
+      REDIS_URL: redis://redis:6379
+      MINIO_ENDPOINT: minio
+      MINIO_PORT: "9000"
+      MINIO_USE_SSL: "false"
+      MINIO_BUCKET: ${MINIO_BUCKET:-content-empire}
+      RENDERER_URL: http://renderer:4300
     depends_on:
       postgres:
         condition: service_healthy
@@ -59,6 +68,8 @@ services:
         condition: service_healthy
       minio:
         condition: service_started
+    volumes:
+      - content_empire_api_data:/data
     healthcheck:
       test: ["CMD", "wget", "-qO-", "http://127.0.0.1:4000/health"]
       interval: 15s
@@ -77,6 +88,8 @@ services:
     restart: unless-stopped
     env_file:
       - ../../.env
+    environment:
+      API_URL: http://api:4000
     depends_on:
       api:
         condition: service_healthy
@@ -98,6 +111,8 @@ services:
     restart: unless-stopped
     env_file:
       - ../../.env
+    environment:
+      REDIS_URL: redis://redis:6379
     depends_on:
       api:
         condition: service_healthy
@@ -114,6 +129,8 @@ services:
     restart: unless-stopped
     env_file:
       - ../../.env
+    environment:
+      API_URL: http://api:4000
     depends_on:
       api:
         condition: service_healthy
@@ -135,6 +152,8 @@ services:
     restart: unless-stopped
     env_file:
       - ../../.env
+    environment:
+      API_URL: http://api:4000
     depends_on:
       api:
         condition: service_healthy
@@ -169,3 +188,4 @@ networks:
 volumes:
   content_empire_postgres:
   content_empire_minio:
+  content_empire_api_data:

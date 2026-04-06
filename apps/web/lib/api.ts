@@ -6,6 +6,7 @@ import type {
   AuthField,
   AuditEvent,
   ContentCard,
+  ContentStudioSnapshot,
   DashboardSnapshot,
   InboxItem,
   PlatformSetupBlueprint,
@@ -122,4 +123,19 @@ export function getContent() {
 
 export function getInbox() {
   return getJson<InboxItem[]>("/api/inbox", []);
+}
+
+export function getContentStudio() {
+  return getJson<ContentStudioSnapshot>("/api/content-studio", {
+    projects: [],
+    assets: [],
+    editJobs: [],
+    content: [],
+    stats: {
+      assetCount: 0,
+      analyzedAssetCount: 0,
+      editJobCount: 0,
+      renderedJobCount: 0
+    }
+  });
 }
