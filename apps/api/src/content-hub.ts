@@ -1,7 +1,6 @@
 import { prisma } from "@content-empire/db";
 import type { ContentStudioSnapshot, Highlight, MediaAsset as SharedMediaAsset, EditJob as SharedEditJob, ContentCard, Project } from "@content-empire/shared";
 import { CreateBucketCommand, GetObjectCommand, HeadBucketCommand, PutObjectCommand, S3Client } from "@aws-sdk/client-s3";
-import type { ContentItem, MediaAsset, Prisma } from "@prisma/client";
 import { createHash, randomUUID } from "node:crypto";
 
 const bucketName = process.env.MINIO_BUCKET ?? "content-empire";
@@ -26,11 +25,73 @@ function safeFilename(value: string) {
   return value.replace(/[^a-zA-Z0-9._-]+/g, "-").replace(/-+/g, "-");
 }
 
-function toStringArray(value: Prisma.JsonValue | null | undefined): string[] {
+type JsonLike = unknown;
+
+type ContentItemRecord = {
+  id: string;
+  projectId: string;
+  title: string;
+  status: string;
+  metadata: JsonLike;
+  project: { name: string };
+};
+
+type MediaAssetRecord = {
+  id: string;
+  projectId: string;
+  title: string;
+  description: string;
+  mediaKind: SharedMediaAsset["mediaKind"];
+  mimeType: string;
+  originalFilename: string;
+  bucket: string;
+  objectKey: string;
+  sizeBytes: number;
+  durationSeconds: number | null;
+  tags: JsonLike;
+  transcriptStatus: SharedMediaAsset["transcriptStatus"];
+  transcript: string | null;
+  transcriptChecksum: string | null;
+  analysisSummary: string | null;
+  sentiment: string | null;
+  keywords: JsonLike;
+  highlights: JsonLike;
+  createdAt: Date;
+  updatedAt: Date;
+  project: { name: string };
+};
+
+type EditJobRecord = {
+  id: string;
+  projectId: string;
+  accountId: string | null;
+  contentItemId: string | null;
+  title: string;
+  sourceAssetId: string;
+  includeCaptions: boolean;
+  status: SharedEditJob["status"];
+  instructions: string;
+  aspectRatio: string;
+  renderTemplate: string;
+  transcriptSnapshot: string | null;
+  selectedHighlights: JsonLike;
+  outputObjectKey: string | null;
+  createdAt: Date;
+  updatedAt: Date;
+  project: { name: string };
+  account: { displayName: string } | null;
+  sourceAsset: { title: string };
+  brollAssets: Array<{
+    mediaAssetId: string;
+    mediaAsset: { title: string };
+  }>;
+};
+
+function toStringArray(value: JsonLike): string[] {
   return Array.isArray(value) ? value.filter((item): item is string => typeof item === "string") : [];
 }
 
-function toHighlightArray(value: Prisma.JsonValue | null | undefined): Highlight[] {
+function toHighlightArray(value: JsonLike): Highlight[] {
   if (!Array.isArray(value)) {
     return [];
   }
@@ -198,7 +259,7 @@ export async function uploadAssetToStorage(params: {
   };
 }
 
-function mapContentCard(item: ContentItem & { project: { name: string } }): ContentCard {
+function mapContentCard(item: ContentItemRecord): ContentCard {
   const metadata = item.metadata && typeof item.metadata === "object" ? (item.metadata as Record<string, unknown>) : {};
   return {
     id: item.id,
@@ -219,7 +280,7 @@ function mapContentCard(item: ContentItem & { project: { name: string } }): Cont
   };
 }
 
-function mapMediaAsset(asset: MediaAsset & { project: { name: string } }): SharedMediaAsset {
+function mapMediaAsset(asset: MediaAssetRecord): SharedMediaAsset {
   return {
     id: asset.id,
     projectId: asset.projectId,
@@ -246,14 +307,7 @@ function mapMediaAsset(asset: MediaAsset & { project: { name: string } }): Share
   };
 }
 
-function mapEditJob(job: Prisma.EditJobGetPayload<{
-  include: {
-    project: true;
-    account: true;
-    sourceAsset: true;
-    brollAssets: { include: { mediaAsset: true } };
-  };
-}>): SharedEditJob {
+function mapEditJob(job: EditJobRecord): SharedEditJob {
   const highlights = toHighlightArray(job.selectedHighlights);
   return {
     id: job.id,
@@ -265,8 +319,8 @@ function mapEditJob(job: Prisma.EditJobGetPayload<{
     title: job.title,
     sourceAssetId: job.sourceAssetId,
     sourceAssetTitle: job.sourceAsset.title,
-    brollAssetIds: job.brollAssets.map((item) => item.mediaAssetId),
-    brollAssetTitles: job.brollAssets.map((item) => item.mediaAsset.title),
+    brollAssetIds: job.brollAssets.map((item: { mediaAssetId: string }) => item.mediaAssetId),
+    brollAssetTitles: job.brollAssets.map((item: { mediaAsset: { title: string } }) => item.mediaAsset.title),
     includeCaptions: job.includeCaptions,
     status: job.status,
     instructions: job.instructions,
@@ -298,7 +352,7 @@ export async function getContentStudioSnapshot(): Promise<ContentStudioSnapshot>
   ]);
 
   return {
-    projects: projects.map((project) => ({
+    projects: projects.map((project: { id: string; slug: string; name: string; description: string; voice: string; status: Project["status"]; dailyOptimizationEnabled: boolean }) => ({
       id: project.id,
       slug: project.slug,
       name: project.name,
@@ -307,14 +361,14 @@ export async function getContentStudioSnapshot(): Promise<ContentStudioSnapshot>
       status: project.status,
       dailyOptimizationEnabled: project.dailyOptimizationEnabled
     })) as Project[],
-    assets: assets.map(mapMediaAsset),
-    editJobs: editJobs.map(mapEditJob),
-    content: content.map(mapContentCard),
+    assets: assets.map((asset) => mapMediaAsset(asset as MediaAssetRecord)),
+    editJobs: editJobs.map((job) => mapEditJob(job as EditJobRecord)),
+    content: content.map((item) => mapContentCard(item as ContentItemRecord)),
     stats: {
       assetCount: assets.length,
-      analyzedAssetCount: assets.filter((asset) => asset.transcriptStatus === "ready").length,
+      analyzedAssetCount: assets.filter((asset: { transcriptStatus: string }) => asset.transcriptStatus === "ready").length,
       editJobCount: editJobs.length,
-      renderedJobCount: editJobs.filter((job) => job.status === "completed").length
+      renderedJobCount: editJobs.filter((job: { status: string }) => job.status === "completed").length
     }
   };
 }
@@ -463,7 +517,7 @@ export async function createEditJobRecord(params: {
   const transcriptSnapshot = sourceAsset.transcript ?? null;
   const renderPlan = {
     sourceAssetId: sourceAsset.id,
-    brollAssetIds: brollAssets.map((item) => item.id),
+    brollAssetIds: brollAssets.map((item: { id: string }) => item.id),
     includeCaptions: params.includeCaptions,
     aspectRatio: params.aspectRatio,
     renderTemplate: params.renderTemplate,
@@ -509,7 +563,7 @@ export async function createEditJobRecord(params: {
       },
       renderPlan,
       brollAssets: {
-        create: brollAssets.map((asset, index) => ({
+        create: brollAssets.map((asset: { id: string }, index: number) => ({
           mediaAssetId: asset.id,
           role: "b_roll",
           sortOrder: index
@@ -533,7 +587,7 @@ export async function createEditJobRecord(params: {
       body: JSON.stringify({
         projectId: params.projectId,
         template: ["meme", "slideshow", "fade"].includes(params.renderTemplate) ? params.renderTemplate : "slideshow",
-        assetIds: [sourceAsset.id, ...brollAssets.map((asset) => asset.id)],
+        assetIds: [sourceAsset.id, ...brollAssets.map((asset: { id: string }) => asset.id)],
         caption: params.includeCaptions ? transcriptSnapshot ?? params.instructions : undefined
       })
     });
@@ -549,7 +603,7 @@ export async function createEditJobRecord(params: {
     // Renderer is optional at creation time; the job record remains queued in Postgres.
   }
 
-  return mapEditJob(created);
+  return mapEditJob(created as EditJobRecord);
 }
 
 export async function streamMediaAsset(assetId: string) {
