@@ -1,4 +1,5 @@
 import type { AuthField } from "@content-empire/shared";
+import Link from "next/link";
 import {
   captureSessionAction,
   certifyAccountAction,
@@ -260,16 +261,21 @@ export default async function AccountDetailPage({
               <button type="submit">Prepare connector</button>
             </form>
             {readiness.sessionCaptureNeeded ? (
-              <form action={captureSessionAction} className="grid-form">
-                <input type="hidden" name="accountId" value={account.id} />
-                <select name="mode" required defaultValue={setup.sessionConfig.captureMode || "bundle"}>
-                  <option value="cookies_only">cookies_only</option>
-                  <option value="bundle">bundle</option>
-                  <option value="profile">profile</option>
-                </select>
-                <input name="notes" placeholder="Notes for this capture" defaultValue={setup.notes} />
-                <button type="submit">Capture session</button>
-              </form>
+              <>
+                <Link className="button-link" href={`/accounts/${account.id}/session-connect`}>
+                  Start cookie connection
+                </Link>
+                <form action={captureSessionAction} className="grid-form">
+                  <input type="hidden" name="accountId" value={account.id} />
+                  <select name="mode" required defaultValue={setup.sessionConfig.captureMode || "bundle"}>
+                    <option value="cookies_only">cookies_only</option>
+                    <option value="bundle">bundle</option>
+                    <option value="profile">profile</option>
+                  </select>
+                  <input name="notes" placeholder="Notes for this capture" defaultValue={setup.notes} />
+                  <button type="submit">Capture session</button>
+                </form>
+              </>
             ) : (
               <p className="empty-state">This connector mode does not need a session capture.</p>
             )}

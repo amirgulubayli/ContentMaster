@@ -38,6 +38,15 @@ function collectPrefixedConfig(formData: FormData, prefix: string) {
   return output;
 }
 
+function parseJsonField(formData: FormData, key: string, fallback: unknown) {
+  const raw = String(formData.get(key) ?? "").trim();
+  if (!raw) {
+    return fallback;
+  }
+
+  return JSON.parse(raw);
+}
+
 export async function createProjectAction(formData: FormData) {
   await postJson("/api/projects", {
     name: formData.get("name"),
@@ -144,15 +153,31 @@ export async function importSessionBundleAction(formData: FormData) {
     sourceText = await bundleFile.text();
   }
 
-  if (!sourceText) {
-    throw new Error("Provide a session bundle JSON payload or upload a JSON file.");
+  const bundle =
+    sourceText.length > 0
+      ? JSON.parse(sourceText)
+      : {
+          cookies: parseJsonField(formData, "cookiesJson", []),
+          localStorage: parseJsonField(formData, "localStorageJson", {}),
+          sessionStorage: parseJsonField(formData, "sessionStorageJson", {}),
+          csrfTokens: parseJsonField(formData, "csrfTokensJson", {}),
+          fingerprint: {
+            userAgent: String(formData.get("fingerprintUserAgent") ?? "Mozilla/5.0"),
+            viewport: String(formData.get("fingerprintViewport") ?? "1440x900"),
+            locale: String(formData.get("fingerprintLocale") ?? "en-GB")
+          },
+          profileObjectKey: String(formData.get("profileObjectKey") ?? "").trim() || null
+        };
+
+  if (!sourceText && !Array.isArray(bundle.cookies)) {
+    throw new Error("Provide a session bundle JSON payload, upload a JSON file, or enter cookies in the manual session fields.");
   }
 
   await postJson("/api/session-vault/import", {
     accountId,
     mode: formData.get("mode"),
     notes: formData.get("notes"),
-    bundle: JSON.parse(sourceText)
+    bundle
   });
 
   revalidatePath("/session-vault");
