@@ -86,6 +86,56 @@ function getStringPayloadValue(payload: Record<string, unknown>, keys: string[])
   return undefined;
 }
 
+function getErrorMessage(error: unknown) {
+  if (error instanceof Error) {
+    return error.message.trim();
+  }
+
+  if (typeof error === "string") {
+    return error.trim();
+  }
+
+  return "";
+}
+
+function getNavigationFailureReason(error: unknown) {
+  const message = getErrorMessage(error).toLowerCase();
+
+  if (message.includes("err_proxy_connection_failed")) {
+    return "proxy connection failed";
+  }
+
+  if (message.includes("err_tunnel_connection_failed")) {
+    return "proxy tunnel failed";
+  }
+
+  if (message.includes("err_socks_connection_failed")) {
+    return "proxy socks connection failed";
+  }
+
+  if (message.includes("err_name_not_resolved")) {
+    return "dns resolution failed";
+  }
+
+  if (message.includes("err_connection_reset")) {
+    return "connection reset";
+  }
+
+  if (message.includes("err_internet_disconnected")) {
+    return "internet disconnected";
+  }
+
+  if (message.includes("timeout") || message.includes("timed out")) {
+    return "navigation timeout";
+  }
+
+  return "page failed to render";
+}
+
+function describeConnection(proxyLabel?: string | null) {
+  return proxyLabel ? `via proxy ${proxyLabel}` : "via direct connection";
+}
+
 class RetryableProxyError extends Error {
   reason: string;
 
@@ -258,12 +308,18 @@ function detectRedditBlockReason(pageContext: Awaited<ReturnType<typeof captureR
 async function gotoPage(
   page: import("playwright").Page,
   url: string,
-  platform: string
+  platform: string,
+  proxyLabel?: string | null
 ) {
   try {
-    await page.goto(url, { waitUntil: "domcontentloaded" });
+    await page.goto(url, { waitUntil: "domcontentloaded", timeout: 45000 });
   } catch (cause) {
-    throw new RetryableProxyError("page failed to render", `Navigation failed for ${url}.`, cause);
+    const reason = getNavigationFailureReason(cause);
+    const detail = getErrorMessage(cause);
+    const message = detail
+      ? `Navigation failed for ${url} ${describeConnection(proxyLabel)}: ${detail}`
+      : `Navigation failed for ${url} ${describeConnection(proxyLabel)}.`;
+    throw new RetryableProxyError(reason, message, cause);
   }
 
   if (platform === "reddit") {
@@ -279,7 +335,11 @@ async function gotoPage(
   }
 }
 
-async function executeRedditSendDm(page: import("playwright").Page, payload: Record<string, unknown>) {
+async function executeRedditSendDm(
+  page: import("playwright").Page,
+  payload: Record<string, unknown>,
+  proxyLabel?: string | null
+) {
   const { composeUrl, recipient } = resolveRedditComposeUrl(payload);
   const title = getStringPayloadValue(payload, ["title", "subject"]);
   const message = getStringPayloadValue(payload, ["message", "text", "body"]);
@@ -306,7 +366,7 @@ async function executeRedditSendDm(page: import("playwright").Page, payload: Rec
     throw new Error("Reddit send_dm requires payload.message");
   }
 
-  await gotoPage(page, composeUrl, "reddit");
+  await gotoPage(page, composeUrl, "reddit", proxyLabel);
   try {
     await page.waitForSelector("compose-message-form", { timeout: submitTimeoutMs });
   } catch (cause) {
@@ -444,11 +504,12 @@ async function executeRedditSendDm(page: import("playwright").Page, payload: Rec
 async function executeStep(
   page: import("playwright").Page,
   step: z.infer<typeof stepSchema>,
-  platform: string
+  platform: string,
+  proxyLabel?: string | null
 ) {
   switch (step.type) {
     case "goto":
-      await gotoPage(page, step.url ?? "about:blank", platform);
+      await gotoPage(page, step.url ?? "about:blank", platform, proxyLabel);
       break;
     case "click":
       if (!step.selector) throw new Error("click step requires selector");
@@ -486,9 +547,16 @@ async function executeAttempt(
   proxyConfig: SessionRunnerAction["proxy"] | null
 ) {
   const proxy = proxyConfig ? parseRunnerProxy(proxyConfig) : null;
-  if (proxy) {
-    app.log.info(`Using proxy ${proxy.label} for account ${input.accountId}`);
-  }
+  app.log.info(
+    {
+      accountId: input.accountId,
+      platform: input.platform,
+      action: input.action,
+      proxyLabel: proxy?.label ?? null,
+      connectionMode: proxy ? "proxy" : "direct"
+    },
+    proxy ? "Executing session action with proxy" : "Executing session action without proxy"
+  );
 
   const browser = await chromium.launch({
     headless: true,
@@ -543,17 +611,17 @@ async function executeAttempt(
 
       for (const rawStep of steps) {
         const step = stepSchema.parse(rawStep);
-        await executeStep(page, step, input.platform);
+        await executeStep(page, step, input.platform, proxy?.label ?? null);
       }
     } else if (input.action === "send_dm" && input.platform === "reddit") {
-      await executeRedditSendDm(page, input.payload);
+      await executeRedditSendDm(page, input.payload, proxy?.label ?? null);
     } else {
       const targetUrl =
         (typeof input.payload.targetUrl === "string" && input.payload.targetUrl) ||
         (typeof input.payload.url === "string" && input.payload.url) ||
         defaultUrlForPlatform(input.platform);
 
-      await gotoPage(page, targetUrl, input.platform);
+      await gotoPage(page, targetUrl, input.platform, proxy?.label ?? null);
 
       const text =
         typeof input.payload.message === "string"
@@ -610,6 +678,17 @@ app.post("/execute", async (request, reply) => {
     return await executeAttempt(parsed.data, parsed.data.proxy ?? null);
   } catch (error) {
     if (isRetryableProxyError(error)) {
+      app.log.warn(
+        {
+          accountId: parsed.data.accountId,
+          platform: parsed.data.platform,
+          action: parsed.data.action,
+          proxyLabel: parsed.data.proxy?.label ?? null,
+          reason: error.reason,
+          detail: getErrorMessage(error.cause)
+        },
+        "Session runner returned retryable failure"
+      );
       reply.code(409);
       return {
         error: error.message,

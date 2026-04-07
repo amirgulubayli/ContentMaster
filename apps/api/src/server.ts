@@ -167,7 +167,26 @@ async function executeSessionAction(accountId: string, platform: string, action:
   };
   const selectedProxy = selectProxyForContext(state, proxyContext);
   if (selectedProxy) {
+    app.log.info(
+      {
+        accountId,
+        platform,
+        action,
+        proxyId: selectedProxy.id,
+        proxyLabel: selectedProxy.label
+      },
+      "Selected proxy for session action"
+    );
     persistState();
+  } else {
+    app.log.warn(
+      {
+        accountId,
+        platform,
+        action
+      },
+      "No eligible proxy selected for session action; using direct connection"
+    );
   }
 
   if (action === "send_dm") {
