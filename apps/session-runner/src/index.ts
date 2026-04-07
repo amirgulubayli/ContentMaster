@@ -105,6 +105,39 @@ function resolveRedditComposeUrl(payload: Record<string, unknown>) {
   };
 }
 
+async function getShadowFieldHandle(
+  page: import("playwright").Page,
+  hostSelector: string,
+  inputSelector: string
+) {
+  const host = await page.waitForSelector(hostSelector, { state: "attached" });
+  const handle = await host.evaluateHandle(
+    (element, selector) => element.shadowRoot?.querySelector(selector) ?? null,
+    inputSelector
+  );
+  const field = handle.asElement();
+
+  if (!field) {
+    throw new Error(`Unable to resolve shadow field ${inputSelector} from ${hostSelector}`);
+  }
+
+  return field;
+}
+
+async function typeIntoField(
+  field: import("playwright").ElementHandle<Element>,
+  value: string
+) {
+  await field.click({ clickCount: 3 });
+  await field.press("Backspace");
+  await field.type(value, { delay: 25 });
+  await field.evaluate((element) => {
+    if (element instanceof HTMLElement) {
+      element.blur();
+    }
+  });
+}
+
 async function executeRedditSendDm(page: import("playwright").Page, payload: Record<string, unknown>) {
   const { composeUrl, recipient } = resolveRedditComposeUrl(payload);
   const title = getStringPayloadValue(payload, ["title", "subject"]);
@@ -135,68 +168,91 @@ async function executeRedditSendDm(page: import("playwright").Page, payload: Rec
 
   await page.goto(composeUrl, { waitUntil: "domcontentloaded" });
   await page.waitForSelector("compose-message-form", { timeout: submitTimeoutMs });
-  await page.waitForSelector('faceplate-text-input[name="message-recipient-input"]', {
-    timeout: submitTimeoutMs
-  });
-
-  const result = await page.evaluate(
-    ({ to, title, message }) => {
-      const setElementValue = (element: HTMLInputElement | HTMLTextAreaElement, value: string) => {
-        const prototype =
-          element instanceof HTMLTextAreaElement ? HTMLTextAreaElement.prototype : HTMLInputElement.prototype;
-        const descriptor = Object.getOwnPropertyDescriptor(prototype, "value");
-
-        element.focus();
-        descriptor?.set?.call(element, "");
-        element.dispatchEvent(new Event("input", { bubbles: true, composed: true }));
-        descriptor?.set?.call(element, value);
-        element.dispatchEvent(new Event("input", { bubbles: true, composed: true }));
-        element.dispatchEvent(new Event("change", { bubbles: true, composed: true }));
-        element.blur();
-      };
-
-      const setInput = (
-        hostSelector: string,
-        inputSelector: string,
-        value: string
-      ) => {
-        const host = document.querySelector(hostSelector);
-        if (!(host instanceof HTMLElement) || !host.shadowRoot) {
-          return false;
-        }
-
-        const input = host.shadowRoot.querySelector(inputSelector);
-        if (!(input instanceof HTMLInputElement) && !(input instanceof HTMLTextAreaElement)) {
-          return false;
-        }
-
-        setElementValue(input, value);
-        return input.value === value;
-      };
-
-      const okRecipient = setInput(
-        'faceplate-text-input[name="message-recipient-input"]',
-        'input[name="message-recipient-input"]',
-        to
-      );
-      const okTitle = setInput(
-        'faceplate-text-input[name="message-title"]',
-        'input[name="message-title"]',
-        title
-      );
-      const okMessage = setInput(
-        'faceplate-textarea-input[name="message-content"]',
-        'textarea[name="message-content"]',
-        message
-      );
-
-      return { okRecipient, okTitle, okMessage };
-    },
-    { to: recipient, title, message }
+  const recipientField = await getShadowFieldHandle(
+    page,
+    'faceplate-text-input[name="message-recipient-input"]',
+    'input[name="message-recipient-input"]'
+  );
+  const titleField = await getShadowFieldHandle(
+    page,
+    'faceplate-text-input[name="message-title"]',
+    'input[name="message-title"]'
+  );
+  const messageField = await getShadowFieldHandle(
+    page,
+    'faceplate-textarea-input[name="message-content"]',
+    'textarea[name="message-content"]'
   );
 
-  if (!result.okRecipient || !result.okTitle || !result.okMessage) {
-    throw new Error(`Reddit DM shadow input update failed: ${JSON.stringify(result)}`);
+  await typeIntoField(recipientField, recipient);
+  await typeIntoField(titleField, title);
+  await typeIntoField(messageField, message);
+
+  try {
+    await page.waitForSelector(enabledSubmitSelector, { timeout: Math.min(3000, submitTimeoutMs) });
+  } catch {
+    const result = await page.evaluate(
+      ({ to, title, message }) => {
+        const pulseField = (
+          hostSelector: string,
+          inputSelector: string,
+          value: string
+        ) => {
+          const host = document.querySelector(hostSelector);
+          if (!(host instanceof HTMLElement) || !host.shadowRoot) {
+            return false;
+          }
+
+          const input = host.shadowRoot.querySelector(inputSelector);
+          if (!(input instanceof HTMLInputElement) && !(input instanceof HTMLTextAreaElement)) {
+            return false;
+          }
+
+          input.focus();
+          input.dispatchEvent(
+            new InputEvent("input", {
+              bubbles: true,
+              composed: true,
+              data: value,
+              inputType: "insertText"
+            })
+          );
+          input.dispatchEvent(
+            new KeyboardEvent("keyup", {
+              bubbles: true,
+              composed: true,
+              key: value.slice(-1) || " "
+            })
+          );
+          input.dispatchEvent(new Event("change", { bubbles: true, composed: true }));
+          input.blur();
+          return input.value === value;
+        };
+
+        const okRecipient = pulseField(
+          'faceplate-text-input[name="message-recipient-input"]',
+          'input[name="message-recipient-input"]',
+          to
+        );
+        const okTitle = pulseField(
+          'faceplate-text-input[name="message-title"]',
+          'input[name="message-title"]',
+          title
+        );
+        const okMessage = pulseField(
+          'faceplate-textarea-input[name="message-content"]',
+          'textarea[name="message-content"]',
+          message
+        );
+
+        return { okRecipient, okTitle, okMessage };
+      },
+      { to: recipient, title, message }
+    );
+
+    if (!result.okRecipient || !result.okTitle || !result.okMessage) {
+      throw new Error(`Reddit DM shadow input reinforcement failed: ${JSON.stringify(result)}`);
+    }
   }
 
   await page.waitForSelector(enabledSubmitSelector, { timeout: submitTimeoutMs });
