@@ -138,6 +138,79 @@ async function typeIntoField(
   });
 }
 
+async function pulseFieldValidation(
+  field: import("playwright").ElementHandle<Element>,
+  value: string
+) {
+  await field.evaluate((element, nextValue) => {
+    if (!(element instanceof HTMLInputElement) && !(element instanceof HTMLTextAreaElement)) {
+      return;
+    }
+
+    element.focus();
+    element.dispatchEvent(
+      new InputEvent("input", {
+        bubbles: true,
+        composed: true,
+        data: nextValue,
+        inputType: "insertText"
+      })
+    );
+    element.dispatchEvent(
+      new Event("change", {
+        bubbles: true,
+        composed: true
+      })
+    );
+    element.dispatchEvent(
+      new KeyboardEvent("keyup", {
+        bubbles: true,
+        composed: true,
+        key: nextValue.slice(-1) || " "
+      })
+    );
+    element.blur();
+  }, value);
+}
+
+async function captureRedditComposeState(page: import("playwright").Page) {
+  return page.evaluate(() => {
+    const getValue = (hostSelector: string, inputSelector: string) => {
+      const host = document.querySelector(hostSelector);
+      if (!(host instanceof HTMLElement) || !host.shadowRoot) {
+        return null;
+      }
+
+      const input = host.shadowRoot.querySelector(inputSelector);
+      if (!(input instanceof HTMLInputElement) && !(input instanceof HTMLTextAreaElement)) {
+        return null;
+      }
+
+      return input.value;
+    };
+
+    const submit = document.querySelector('compose-message-form button[type="submit"]');
+    const disabled =
+      submit instanceof HTMLButtonElement ? submit.disabled : null;
+
+    return {
+      to: getValue(
+        'faceplate-text-input[name="message-recipient-input"]',
+        'input[name="message-recipient-input"]'
+      ),
+      title: getValue(
+        'faceplate-text-input[name="message-title"]',
+        'input[name="message-title"]'
+      ),
+      msg: getValue(
+        'faceplate-textarea-input[name="message-content"]',
+        'textarea[name="message-content"]'
+      ),
+      buttonDisabled: disabled
+    };
+  });
+}
+
 async function executeRedditSendDm(page: import("playwright").Page, payload: Record<string, unknown>) {
   const { composeUrl, recipient } = resolveRedditComposeUrl(payload);
   const title = getStringPayloadValue(payload, ["title", "subject"]);
@@ -187,9 +260,22 @@ async function executeRedditSendDm(page: import("playwright").Page, payload: Rec
   await typeIntoField(recipientField, recipient);
   await typeIntoField(titleField, title);
   await typeIntoField(messageField, message);
+  await pulseFieldValidation(recipientField, recipient);
+  await pulseFieldValidation(titleField, title);
+  await pulseFieldValidation(messageField, message);
+
+  const typedState = await captureRedditComposeState(page);
+  app.log.info({ typedState }, "Reddit DM compose state after shadow typing");
 
   try {
-    await page.waitForSelector(enabledSubmitSelector, { timeout: Math.min(3000, submitTimeoutMs) });
+    await page.waitForFunction(
+      (selector) => {
+        const submit = document.querySelector(selector);
+        return submit instanceof HTMLButtonElement && !submit.disabled;
+      },
+      submitSelector,
+      { timeout: Math.min(3000, submitTimeoutMs) }
+    );
   } catch {
     const result = await page.evaluate(
       ({ to, title, message }) => {
@@ -249,13 +335,26 @@ async function executeRedditSendDm(page: import("playwright").Page, payload: Rec
       },
       { to: recipient, title, message }
     );
+    const reinforcedState = await captureRedditComposeState(page);
+    app.log.info({ reinforcedState }, "Reddit DM compose state after fallback events");
 
     if (!result.okRecipient || !result.okTitle || !result.okMessage) {
       throw new Error(`Reddit DM shadow input reinforcement failed: ${JSON.stringify(result)}`);
     }
   }
 
-  await page.waitForSelector(enabledSubmitSelector, { timeout: submitTimeoutMs });
+  await page.waitForFunction(
+    (selector) => {
+      const submit = document.querySelector(selector);
+      return submit instanceof HTMLButtonElement && !submit.disabled;
+    },
+    submitSelector,
+    { timeout: submitTimeoutMs }
+  ).catch(async (error) => {
+    const finalState = await captureRedditComposeState(page);
+    app.log.error({ finalState }, "Reddit DM submit button stayed disabled");
+    throw error;
+  });
   await page.click(submitSelector);
 }
 
