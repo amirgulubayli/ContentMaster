@@ -93,4 +93,23 @@ export const createEditJobSchema = z.object({
   renderTemplate: z.string().default("slideshow")
 });
 
+export const upsertProxySchema = z.object({
+  proxyId: z.string().optional(),
+  label: z.string().min(2),
+  raw: z.string().min(3),
+  provider: z.string().default(""),
+  countryCode: z.string().default(""),
+  platformTargets: z.array(platformSchema).default([]),
+  enabled: z.boolean().default(true),
+  notes: z.string().default("")
+});
+
+export const deleteProxySchema = z.object({
+  proxyId: z.string()
+});
+
+export const rotateProxyAssignmentSchema = z.object({
+  key: z.string()
+});
+
 export { openClawActionSchema };

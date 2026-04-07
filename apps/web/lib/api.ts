@@ -10,6 +10,7 @@ import type {
   DashboardSnapshot,
   InboxItem,
   PlatformSetupBlueprint,
+  ProxySnapshot,
   Project,
   QueueItem
 } from "@content-empire/shared";
@@ -59,6 +60,15 @@ export function getAccountProfile(accountId: string) {
     };
     blueprint: PlatformSetupBlueprint;
     setup: AccountSetupState;
+    proxyAssignment: {
+      key: string;
+      scope: string;
+      target: string;
+      platformHint: string | null;
+      proxyId: string;
+      proxyLabel: string | null;
+      updatedAt: string;
+    } | null;
     readiness: AccountSetupReadiness;
     authConnection: {
       provider: string;
@@ -71,6 +81,13 @@ export function getAccountProfile(accountId: string) {
       metadata: Record<string, string>;
     } | null;
   }>(`/api/accounts/${accountId}/profile`, null as never);
+}
+
+export function getProxies() {
+  return getJson<ProxySnapshot>("/api/proxies", {
+    proxies: [],
+    assignments: []
+  });
 }
 
 export function getSessionVault() {

@@ -83,8 +83,20 @@ import {
   updateAccountSetupSchema,
   openClawActionSchema,
   queueActionSchema,
+  rotateProxyAssignmentSchema,
+  deleteProxySchema,
+  upsertProxySchema,
   uploadMediaAssetSchema
 } from "./schemas.js";
+import {
+  buildProxySnapshot,
+  deleteProxyFromState,
+  getAccountProxyKey,
+  recordProxyFailure,
+  recordProxySuccess,
+  rotateProxyForContext,
+  selectProxyForContext
+} from "./proxy-manager.js";
 import { buildSessionWorkflow } from "./session-workflows.js";
 import { appendAudit, persistState, state } from "./state.js";
 
@@ -115,6 +127,8 @@ async function executeSessionAction(accountId: string, platform: string, action:
     return null;
   }
 
+  const sessionConfig = state.setup[accountId]?.sessionConfig ?? {};
+
   const sessionBundle = decryptJson<{
     cookies: Array<{
       name: string;
@@ -138,17 +152,27 @@ async function executeSessionAction(accountId: string, platform: string, action:
     platform,
     action as "publish_post" | "edit_post" | "reply_comment" | "send_dm" | "engage" | "refresh_session",
     payload,
-    state.setup[accountId]?.sessionConfig ?? {}
+    sessionConfig
   );
   const sessionPayload = {
     ...payload,
     ...workflow
   };
+  const proxyContext = {
+    key: getAccountProxyKey(accountId),
+    scope: "account" as const,
+    target: accountId,
+    platformHint: platform
+  };
+  const selectedProxy = selectProxyForContext(state, proxyContext);
+  if (selectedProxy) {
+    persistState();
+  }
 
-  if (platform === "reddit" && action === "send_dm") {
+  if (action === "send_dm") {
+    const forwardedSteps = Array.isArray(sessionPayload.steps) ? sessionPayload.steps : undefined;
+    const hasStepsArray = Boolean(forwardedSteps);
     delete sessionPayload.steps;
-    const forwardedSteps = sessionPayload.steps as unknown;
-    const hasStepsArray = Array.isArray(forwardedSteps);
 
     app.log.info(
       {
@@ -156,33 +180,83 @@ async function executeSessionAction(accountId: string, platform: string, action:
         platform,
         action,
         hasStepsArray,
-        stepCount: hasStepsArray ? forwardedSteps.length : undefined,
+        stepCount: forwardedSteps?.length,
         targetUrl: sessionPayload.targetUrl,
-        submitSelector: sessionPayload.submitSelector
+        submitSelector: sessionPayload.submitSelector,
+        proxyLabel: selectedProxy?.label ?? null
       },
-      "Forwarding Reddit DM to session-runner"
+      "Forwarding session DM to session-runner"
     );
   }
 
-  const response = await fetch(`${process.env.SESSION_RUNNER_URL ?? "http://session-runner:4200"}/execute`, {
-    method: "POST",
-    headers: {
-      "Content-Type": "application/json"
-    },
-    body: JSON.stringify({
-      accountId,
-      platform,
-      action,
-      sessionBundle,
-      payload: sessionPayload
-    })
-  });
+  const executeRunnerRequest = async (proxyId?: string) => {
+    const proxy = proxyId ? state.proxies.find((item) => item.id === proxyId) ?? null : selectedProxy;
+    return fetch(`${process.env.SESSION_RUNNER_URL ?? "http://session-runner:4200"}/execute`, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json"
+      },
+      body: JSON.stringify({
+        accountId,
+        platform,
+        action,
+        sessionBundle,
+        payload: sessionPayload,
+        proxy: proxy
+          ? {
+              id: proxy.id,
+              label: proxy.label,
+              raw: proxy.raw
+            }
+          : undefined
+      })
+    });
+  };
 
-  if (!response.ok) {
-    throw new Error(await response.text());
+  const response = await executeRunnerRequest();
+  if (response.ok) {
+    if (selectedProxy) {
+      recordProxySuccess(state, selectedProxy.id);
+      persistState();
+    }
+
+    return response.json();
   }
 
-  return response.json();
+  let parsedError: { retryable?: boolean; reason?: string; error?: string } | null = null;
+  try {
+    parsedError = (await response.json()) as { retryable?: boolean; reason?: string; error?: string };
+  } catch {
+    parsedError = null;
+  }
+
+  if (response.status === 409 && parsedError?.retryable && selectedProxy) {
+    recordProxyFailure(state, selectedProxy.id, parsedError.reason ?? parsedError.error ?? "Retryable proxy failure");
+    const rotatedProxy = rotateProxyForContext(state, proxyContext);
+    persistState();
+
+    if (rotatedProxy && rotatedProxy.id !== selectedProxy.id) {
+      app.log.warn(`Rotating proxy for account ${accountId} due to ${parsedError.reason ?? "session failure"}`);
+      const retryResponse = await executeRunnerRequest(rotatedProxy.id);
+      if (retryResponse.ok) {
+        recordProxySuccess(state, rotatedProxy.id);
+        persistState();
+        return retryResponse.json();
+      }
+
+      let retryErrorMessage = await retryResponse.text();
+      try {
+        const retryParsed = JSON.parse(retryErrorMessage) as { error?: string };
+        retryErrorMessage = retryParsed.error ?? retryErrorMessage;
+      } catch {
+        // ignore parse failure
+      }
+      throw new Error(retryErrorMessage);
+    }
+  }
+
+  const errorText = parsedError?.error ?? (await response.text());
+  throw new Error(errorText);
 }
 
 async function executePlatformAction(accountId: string, platform: string, action: string, payload: Record<string, unknown>) {
@@ -391,6 +465,118 @@ app.post("/api/projects", async (request, reply) => {
 
 app.get("/api/accounts", async () => state.accounts);
 
+app.get("/api/proxies", async () => buildProxySnapshot(state));
+
+app.post("/api/proxies", async (request, reply) => {
+  const parsed = upsertProxySchema.safeParse(request.body);
+  if (!parsed.success) {
+    reply.code(400);
+    return { error: "Invalid proxy payload", issues: parsed.error.issues };
+  }
+
+  const existing = parsed.data.proxyId
+    ? state.proxies.find((proxy) => proxy.id === parsed.data.proxyId) ?? null
+    : null;
+  const nextRecord = {
+    id: existing?.id ?? `proxy_${Date.now()}`,
+    label: parsed.data.label,
+    raw: parsed.data.raw,
+    provider: parsed.data.provider,
+    countryCode: parsed.data.countryCode.toUpperCase(),
+    platformTargets: parsed.data.platformTargets,
+    enabled: parsed.data.enabled,
+    notes: parsed.data.notes,
+    createdAt: existing?.createdAt ?? new Date().toISOString(),
+    updatedAt: new Date().toISOString(),
+    lastUsedAt: existing?.lastUsedAt ?? null,
+    lastFailureAt: existing?.lastFailureAt ?? null,
+    lastError: existing?.lastError ?? null,
+    successCount: existing?.successCount ?? 0,
+    failureCount: existing?.failureCount ?? 0,
+    consecutiveFailures: existing?.consecutiveFailures ?? 0
+  };
+
+  if (existing) {
+    state.proxies = state.proxies.map((proxy) => (proxy.id === existing.id ? nextRecord : proxy));
+  } else {
+    state.proxies.unshift(nextRecord);
+  }
+
+  appendAudit({
+    id: `audit_${Date.now()}`,
+    actor: "Operator",
+    action: existing ? "update_proxy" : "create_proxy",
+    subject: nextRecord.label,
+    status: "success",
+    createdAt: new Date().toISOString(),
+    detail: `${nextRecord.enabled ? "Enabled" : "Stored disabled"} proxy for ${nextRecord.platformTargets.length > 0 ? nextRecord.platformTargets.join(", ") : "all traffic"}.`
+  });
+
+  persistState();
+  return nextRecord;
+});
+
+app.post("/api/proxies/delete", async (request, reply) => {
+  const parsed = deleteProxySchema.safeParse(request.body);
+  if (!parsed.success) {
+    reply.code(400);
+    return { error: "Invalid proxy delete payload", issues: parsed.error.issues };
+  }
+
+  deleteProxyFromState(state, parsed.data.proxyId);
+
+  appendAudit({
+    id: `audit_${Date.now()}`,
+    actor: "Operator",
+    action: "delete_proxy",
+    subject: parsed.data.proxyId,
+    status: "success",
+    createdAt: new Date().toISOString(),
+    detail: "Removed proxy and cleared its sticky assignments."
+  });
+
+  persistState();
+  return { accepted: true };
+});
+
+app.post("/api/proxies/assignments/rotate", async (request, reply) => {
+  const parsed = rotateProxyAssignmentSchema.safeParse(request.body);
+  if (!parsed.success) {
+    reply.code(400);
+    return { error: "Invalid proxy assignment payload", issues: parsed.error.issues };
+  }
+
+  const assignment = state.proxyAssignments[parsed.data.key];
+  if (!assignment) {
+    reply.code(404);
+    return { error: "Proxy assignment not found" };
+  }
+
+  const rotated = rotateProxyForContext(state, {
+    key: assignment.key,
+    scope: assignment.scope,
+    target: assignment.target,
+    platformHint: assignment.platformHint
+  });
+
+  appendAudit({
+    id: `audit_${Date.now()}`,
+    actor: "Operator",
+    action: "rotate_proxy_assignment",
+    subject: assignment.target,
+    status: rotated ? "success" : "warning",
+    createdAt: new Date().toISOString(),
+    detail: rotated ? `Rotated sticky assignment to ${rotated.label}.` : "No eligible proxy was available for rotation."
+  });
+
+  persistState();
+
+  return {
+    accepted: true,
+    proxy: rotated
+  };
+});
+
 app.post("/api/accounts", async (request, reply) => {
   const parsed = createAccountSchema.safeParse(request.body);
   if (!parsed.success) {
@@ -466,6 +652,17 @@ app.get("/api/accounts/:accountId/profile", async (request, reply) => {
     profile,
     blueprint,
     setup,
+    proxyAssignment: (() => {
+      const assignment = state.proxyAssignments[getAccountProxyKey(account.id)];
+      if (!assignment) {
+        return null;
+      }
+
+      return {
+        ...assignment,
+        proxyLabel: state.proxies.find((proxy) => proxy.id === assignment.proxyId)?.label ?? null
+      };
+    })(),
     readiness: getAccountSetupReadiness(account, setup, profile, blueprint),
     authConnection: (() => {
       const credential = state.credentials[account.id];

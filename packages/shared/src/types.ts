@@ -161,6 +161,52 @@ export const queueItemSchema = z.object({
 
 export type QueueItem = z.infer<typeof queueItemSchema>;
 
+export const proxyRecordSchema = z.object({
+  id: z.string(),
+  label: z.string(),
+  raw: z.string(),
+  provider: z.string(),
+  countryCode: z.string(),
+  platformTargets: z.array(platformSchema),
+  enabled: z.boolean(),
+  notes: z.string(),
+  createdAt: z.string(),
+  updatedAt: z.string(),
+  lastUsedAt: z.string().nullable(),
+  lastFailureAt: z.string().nullable(),
+  lastError: z.string().nullable(),
+  successCount: z.number().int().nonnegative(),
+  failureCount: z.number().int().nonnegative(),
+  consecutiveFailures: z.number().int().nonnegative()
+});
+
+export type ProxyRecord = z.infer<typeof proxyRecordSchema>;
+
+export const proxyAssignmentScopeSchema = z.enum(["account", "host"]);
+export type ProxyAssignmentScope = z.infer<typeof proxyAssignmentScopeSchema>;
+
+export const proxyAssignmentSchema = z.object({
+  key: z.string(),
+  scope: proxyAssignmentScopeSchema,
+  target: z.string(),
+  platformHint: z.string().nullable(),
+  proxyId: z.string(),
+  updatedAt: z.string()
+});
+
+export type ProxyAssignment = z.infer<typeof proxyAssignmentSchema>;
+
+export const proxySnapshotSchema = z.object({
+  proxies: z.array(proxyRecordSchema),
+  assignments: z.array(
+    proxyAssignmentSchema.extend({
+      proxyLabel: z.string().nullable()
+    })
+  )
+});
+
+export type ProxySnapshot = z.infer<typeof proxySnapshotSchema>;
+
 export const dashboardSnapshotSchema = z.object({
   projects: z.array(projectSchema),
   accounts: z.array(accountSchema),

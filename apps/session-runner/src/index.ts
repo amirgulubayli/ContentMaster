@@ -1,6 +1,7 @@
 import Fastify from "fastify";
 import { chromium } from "playwright";
 import { z } from "zod";
+import { parseRunnerProxy } from "./proxy-config.js";
 
 const sessionBundleSchema = z.object({
   cookies: z.array(
@@ -44,7 +45,14 @@ const actionSchema = z.object({
     "refresh_session"
   ]),
   sessionBundle: sessionBundleSchema,
-  payload: z.record(z.string(), z.unknown()).default({})
+  payload: z.record(z.string(), z.unknown()).default({}),
+  proxy: z
+    .object({
+      id: z.string(),
+      label: z.string(),
+      raw: z.string()
+    })
+    .optional()
 });
 
 function defaultUrlForPlatform(platform: string) {
@@ -76,6 +84,23 @@ function getStringPayloadValue(payload: Record<string, unknown>, keys: string[])
   }
 
   return undefined;
+}
+
+class RetryableProxyError extends Error {
+  reason: string;
+
+  cause: unknown;
+
+  constructor(reason: string, message: string, cause?: unknown) {
+    super(message);
+    this.name = "RetryableProxyError";
+    this.reason = reason;
+    this.cause = cause;
+  }
+}
+
+function isRetryableProxyError(error: unknown): error is RetryableProxyError {
+  return error instanceof RetryableProxyError;
 }
 
 function resolveRedditComposeUrl(payload: Record<string, unknown>) {
@@ -220,13 +245,46 @@ async function captureRedditPageContext(page: import("playwright").Page) {
   }));
 }
 
+function detectRedditBlockReason(pageContext: Awaited<ReturnType<typeof captureRedditPageContext>>) {
+  const haystack = `${pageContext.title}\n${pageContext.bodyTextPreview}`.toLowerCase();
+
+  if (haystack.includes("network policy")) {
+    return "network policy";
+  }
+
+  return null;
+}
+
+async function gotoPage(
+  page: import("playwright").Page,
+  url: string,
+  platform: string
+) {
+  try {
+    await page.goto(url, { waitUntil: "domcontentloaded" });
+  } catch (cause) {
+    throw new RetryableProxyError("page failed to render", `Navigation failed for ${url}.`, cause);
+  }
+
+  if (platform === "reddit") {
+    const pageContext = await captureRedditPageContext(page);
+    const blockReason = detectRedditBlockReason(pageContext);
+    if (blockReason) {
+      app.log.error({ pageContext }, "Reddit blocked the page after navigation");
+      throw new RetryableProxyError(
+        blockReason,
+        `Reddit blocked the page with ${blockReason}.`
+      );
+    }
+  }
+}
+
 async function executeRedditSendDm(page: import("playwright").Page, payload: Record<string, unknown>) {
   const { composeUrl, recipient } = resolveRedditComposeUrl(payload);
   const title = getStringPayloadValue(payload, ["title", "subject"]);
   const message = getStringPayloadValue(payload, ["message", "text", "body"]);
   const submitSelector =
     getStringPayloadValue(payload, ["submitSelector"]) ?? 'compose-message-form button[type="submit"]';
-  const enabledSubmitSelector = `${submitSelector}:not([disabled])`;
   const submitTimeoutMs =
     typeof payload.submitTimeoutMs === "number" && Number.isFinite(payload.submitTimeoutMs)
       ? payload.submitTimeoutMs
@@ -248,13 +306,19 @@ async function executeRedditSendDm(page: import("playwright").Page, payload: Rec
     throw new Error("Reddit send_dm requires payload.message");
   }
 
-  await page.goto(composeUrl, { waitUntil: "domcontentloaded" });
+  await gotoPage(page, composeUrl, "reddit");
   try {
     await page.waitForSelector("compose-message-form", { timeout: submitTimeoutMs });
-  } catch (error) {
+  } catch (cause) {
     const pageContext = await captureRedditPageContext(page);
+    const blockReason = detectRedditBlockReason(pageContext);
+    const reason = blockReason ?? "compose-message-form not visible";
     app.log.error({ pageContext }, "Reddit compose form did not render");
-    throw error;
+    throw new RetryableProxyError(
+      reason,
+      `Reddit DM compose page failed with ${reason}.`,
+      cause
+    );
   }
   const recipientField = await getShadowFieldHandle(
     page,
@@ -365,18 +429,26 @@ async function executeRedditSendDm(page: import("playwright").Page, payload: Rec
     },
     submitSelector,
     { timeout: submitTimeoutMs }
-  ).catch(async (error) => {
+  ).catch(async (cause) => {
     const finalState = await captureRedditComposeState(page);
     app.log.error({ finalState }, "Reddit DM submit button stayed disabled");
-    throw error;
+    throw new RetryableProxyError(
+      "submit button never enabled",
+      "Reddit DM submit button never enabled.",
+      cause
+    );
   });
   await page.click(submitSelector);
 }
 
-async function executeStep(page: import("playwright").Page, step: z.infer<typeof stepSchema>) {
+async function executeStep(
+  page: import("playwright").Page,
+  step: z.infer<typeof stepSchema>,
+  platform: string
+) {
   switch (step.type) {
     case "goto":
-      await page.goto(step.url ?? "about:blank", { waitUntil: "domcontentloaded" });
+      await gotoPage(page, step.url ?? "about:blank", platform);
       break;
     case "click":
       if (!step.selector) throw new Error("click step requires selector");
@@ -400,38 +472,44 @@ async function executeStep(page: import("playwright").Page, step: z.infer<typeof
   }
 }
 
-const app = Fastify({ logger: true });
+type SessionRunnerAction = z.infer<typeof actionSchema>;
 
-app.get("/health", async () => ({
-  status: "ok",
-  service: "session-runner",
-  isolated: true
-}));
+function resolveViewport(sessionBundle: SessionRunnerAction["sessionBundle"]) {
+  const viewportParts = sessionBundle.fingerprint.viewport.split("x").map(Number);
+  return viewportParts.length === 2 && viewportParts.every((value) => Number.isFinite(value))
+    ? { width: viewportParts[0], height: viewportParts[1] }
+    : { width: 1440, height: 900 };
+}
 
-app.post("/execute", async (request, reply) => {
-  const parsed = actionSchema.safeParse(request.body);
-  if (!parsed.success) {
-    reply.code(400);
-    return { error: "Invalid request", issues: parsed.error.issues };
+async function executeAttempt(
+  input: SessionRunnerAction,
+  proxyConfig: SessionRunnerAction["proxy"] | null
+) {
+  const proxy = proxyConfig ? parseRunnerProxy(proxyConfig) : null;
+  if (proxy) {
+    app.log.info(`Using proxy ${proxy.label} for account ${input.accountId}`);
   }
 
-  const { action, payload, platform, sessionBundle } = parsed.data;
-  const viewportParts = sessionBundle.fingerprint.viewport.split("x").map(Number);
-  const viewport =
-    viewportParts.length === 2 && viewportParts.every((value) => Number.isFinite(value))
-      ? { width: viewportParts[0], height: viewportParts[1] }
-      : { width: 1440, height: 900 };
+  const browser = await chromium.launch({
+    headless: true,
+    proxy: proxy
+      ? {
+          server: proxy.server,
+          username: proxy.username,
+          password: proxy.password
+        }
+      : undefined
+  });
 
-  const browser = await chromium.launch({ headless: true });
   try {
     const context = await browser.newContext({
-      userAgent: sessionBundle.fingerprint.userAgent,
-      locale: sessionBundle.fingerprint.locale,
-      viewport
+      userAgent: input.sessionBundle.fingerprint.userAgent,
+      locale: input.sessionBundle.fingerprint.locale,
+      viewport: resolveViewport(input.sessionBundle)
     });
 
     await context.addCookies(
-      sessionBundle.cookies.map((cookie) => ({
+      input.sessionBundle.cookies.map((cookie) => ({
         ...cookie,
         sameSite: "Lax"
       }))
@@ -448,36 +526,45 @@ app.post("/execute", async (request, reply) => {
         }
       },
       {
-        localStorageEntries: sessionBundle.localStorage,
-        sessionStorageEntries: sessionBundle.sessionStorage
+        localStorageEntries: input.sessionBundle.localStorage,
+        sessionStorageEntries: input.sessionBundle.sessionStorage
       }
     );
 
     const page = await context.newPage();
-    const steps = Array.isArray(payload.steps) ? payload.steps : [];
+    const steps = Array.isArray(input.payload.steps) ? input.payload.steps : [];
     if (steps.length > 0) {
       const targetUrl =
-        (typeof payload.targetUrl === "string" && payload.targetUrl) ||
-        (typeof payload.url === "string" && payload.url) ||
-        defaultUrlForPlatform(platform);
-      await page.goto(targetUrl, { waitUntil: "domcontentloaded" });
+        (typeof input.payload.targetUrl === "string" && input.payload.targetUrl) ||
+        (typeof input.payload.url === "string" && input.payload.url) ||
+        defaultUrlForPlatform(input.platform);
+
+      await gotoPage(page, targetUrl, input.platform);
 
       for (const rawStep of steps) {
         const step = stepSchema.parse(rawStep);
-        await executeStep(page, step);
+        await executeStep(page, step, input.platform);
       }
-    } else if (action === "send_dm" && platform === "reddit") {
-      await executeRedditSendDm(page, payload);
+    } else if (input.action === "send_dm" && input.platform === "reddit") {
+      await executeRedditSendDm(page, input.payload);
     } else {
       const targetUrl =
-        (typeof payload.targetUrl === "string" && payload.targetUrl) ||
-        (typeof payload.url === "string" && payload.url) ||
-        defaultUrlForPlatform(platform);
-      await page.goto(targetUrl, { waitUntil: "domcontentloaded" });
+        (typeof input.payload.targetUrl === "string" && input.payload.targetUrl) ||
+        (typeof input.payload.url === "string" && input.payload.url) ||
+        defaultUrlForPlatform(input.platform);
 
-      const text = typeof payload.message === "string" ? payload.message : typeof payload.text === "string" ? payload.text : "";
-      const composeSelector = typeof payload.composeSelector === "string" ? payload.composeSelector : undefined;
-      const submitSelector = typeof payload.submitSelector === "string" ? payload.submitSelector : undefined;
+      await gotoPage(page, targetUrl, input.platform);
+
+      const text =
+        typeof input.payload.message === "string"
+          ? input.payload.message
+          : typeof input.payload.text === "string"
+            ? input.payload.text
+            : "";
+      const composeSelector =
+        typeof input.payload.composeSelector === "string" ? input.payload.composeSelector : undefined;
+      const submitSelector =
+        typeof input.payload.submitSelector === "string" ? input.payload.submitSelector : undefined;
 
       if (composeSelector && text) {
         await page.fill(composeSelector, text);
@@ -491,16 +578,48 @@ app.post("/execute", async (request, reply) => {
     return {
       accepted: true,
       execution: {
-        profileLoadedFrom: sessionBundle.profileObjectKey ? "encrypted-profile+bundle" : "encrypted-bundle",
+        profileLoadedFrom: input.sessionBundle.profileObjectKey ? "encrypted-profile+bundle" : "encrypted-bundle",
         liveBrowserLifetime: "per-job",
         secretExposure: "none",
-        action,
+        action: input.action,
         finalUrl: page.url(),
         title: await page.title()
       }
     };
   } finally {
     await browser.close();
+  }
+}
+
+const app = Fastify({ logger: true });
+
+app.get("/health", async () => ({
+  status: "ok",
+  service: "session-runner",
+  isolated: true
+}));
+
+app.post("/execute", async (request, reply) => {
+  const parsed = actionSchema.safeParse(request.body);
+  if (!parsed.success) {
+    reply.code(400);
+    return { error: "Invalid request", issues: parsed.error.issues };
+  }
+
+  try {
+    return await executeAttempt(parsed.data, parsed.data.proxy ?? null);
+  } catch (error) {
+    if (isRetryableProxyError(error)) {
+      reply.code(409);
+      return {
+        error: error.message,
+        retryable: true,
+        reason: error.reason
+      };
+    }
+
+    app.log.error(error);
+    throw error;
   }
 });
 

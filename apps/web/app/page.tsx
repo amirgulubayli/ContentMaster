@@ -1,16 +1,17 @@
 import { getPlatformProfile } from "@content-empire/connectors";
 import { DashboardShell } from "../components/dashboard-shell";
-import { getAccounts, getAlerts, getAudit, getQueue } from "../lib/api";
+import { getAccounts, getAlerts, getAudit, getProxies, getQueue } from "../lib/api";
 import { logoutAction } from "./login/actions";
 
 export const dynamic = "force-dynamic";
 
 export default async function HomePage() {
-  const [accounts, alerts, queue, audit] = await Promise.all([
+  const [accounts, alerts, queue, audit, proxySnapshot] = await Promise.all([
     getAccounts(),
     getAlerts(),
     getQueue(),
-    getAudit()
+    getAudit(),
+    getProxies()
   ]);
 
   const stats = [
@@ -25,9 +26,9 @@ export default async function HomePage() {
       detail: "Encrypted vault records with certified features."
     },
     {
-      label: "OpenClaw authority",
-      value: "Full",
-      detail: "Machine token can control publishing, edits, comments, DMs, analytics, and session refresh."
+      label: "Active proxies",
+      value: `${proxySnapshot.proxies.filter((proxy) => proxy.enabled).length}`,
+      detail: "Sticky pool shared across API fetches and browser session execution."
     }
   ];
 

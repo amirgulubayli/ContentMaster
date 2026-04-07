@@ -1,5 +1,7 @@
 import {
   type AccountSetupState,
+  type ProxyAssignment,
+  type ProxyRecord,
   encryptJson,
   seedAccounts,
   seedAlerts,
@@ -57,6 +59,8 @@ export type AppState = {
   queue: QueueItem[];
   content: ContentCard[];
   inbox: InboxItem[];
+  proxies: ProxyRecord[];
+  proxyAssignments: Record<string, ProxyAssignment>;
   sessions: Record<string, StoredSessionRecord>;
   credentials: Record<string, StoredCredential>;
   oauthStates: Record<string, StoredOauthState>;
@@ -74,6 +78,8 @@ function createDefaultState(): AppState {
     queue: structuredClone(demoMode ? seedQueue : []) as QueueItem[],
     content: structuredClone(demoMode ? seedContent : []) as ContentCard[],
     inbox: structuredClone(demoMode ? seedInbox : []) as InboxItem[],
+    proxies: [],
+    proxyAssignments: {},
     sessions: Object.fromEntries(
       Object.entries(demoMode ? seedSessionBundles : {}).map(([accountId, bundle]) => [
         accountId,
@@ -108,6 +114,11 @@ function loadState(): AppState {
       queue: Array.isArray(parsed.queue) ? parsed.queue : fallback.queue,
       content: Array.isArray(parsed.content) ? parsed.content : fallback.content,
       inbox: Array.isArray(parsed.inbox) ? parsed.inbox : fallback.inbox,
+      proxies: Array.isArray(parsed.proxies) ? parsed.proxies : fallback.proxies,
+      proxyAssignments:
+        parsed.proxyAssignments && typeof parsed.proxyAssignments === "object"
+          ? parsed.proxyAssignments
+          : fallback.proxyAssignments,
       sessions: parsed.sessions && typeof parsed.sessions === "object" ? parsed.sessions : fallback.sessions,
       credentials:
         parsed.credentials && typeof parsed.credentials === "object" ? parsed.credentials : fallback.credentials,

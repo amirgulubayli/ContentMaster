@@ -4,6 +4,7 @@ const navItems = [
   { href: "/", label: "Overview" },
   { href: "/accounts", label: "Accounts" },
   { href: "/connect", label: "Connect" },
+  { href: "/proxies", label: "Proxies" },
   { href: "/session-vault", label: "Session Vault" },
   { href: "/content-studio", label: "Content Studio" },
   { href: "/inbox", label: "Inbox" },

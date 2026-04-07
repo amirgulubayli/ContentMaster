@@ -131,6 +131,7 @@ export default async function AccountDetailPage({
               <p>Auth status: {account.authStatus}</p>
               <p>Automation: {account.automationMode}</p>
               <p>OpenClaw: {account.openClawEnabled ? "enabled" : "disabled"}</p>
+              <p>Proxy: {profile.proxyAssignment?.proxyLabel ?? "automatic pool not assigned yet"}</p>
             </article>
             <article className="platform-card">
               <strong>Live connector status</strong>

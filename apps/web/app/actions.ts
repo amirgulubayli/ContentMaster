@@ -47,6 +47,13 @@ function parseJsonField(formData: FormData, key: string, fallback: unknown) {
   return JSON.parse(raw);
 }
 
+function parseCsvField(formData: FormData, key: string) {
+  return String(formData.get(key) ?? "")
+    .split(",")
+    .map((value) => value.trim())
+    .filter(Boolean);
+}
+
 export async function createProjectAction(formData: FormData) {
   await postJson("/api/projects", {
     name: formData.get("name"),
@@ -99,6 +106,46 @@ export async function updateAccountSetupAction(formData: FormData) {
   revalidatePath("/accounts");
   revalidatePath("/session-vault");
   redirect(`/accounts/${formData.get("accountId")}`);
+}
+
+export async function upsertProxyAction(formData: FormData) {
+  await postJson("/api/proxies", {
+    proxyId: String(formData.get("proxyId") ?? "").trim() || undefined,
+    label: formData.get("label"),
+    raw: formData.get("raw"),
+    provider: formData.get("provider"),
+    countryCode: formData.get("countryCode"),
+    platformTargets: parseCsvField(formData, "platformTargets"),
+    enabled: formData.get("enabled") === "on",
+    notes: formData.get("notes")
+  });
+
+  revalidatePath("/proxies");
+  revalidatePath("/accounts");
+  revalidatePath("/");
+  redirect("/proxies");
+}
+
+export async function deleteProxyAction(formData: FormData) {
+  await postJson("/api/proxies/delete", {
+    proxyId: formData.get("proxyId")
+  });
+
+  revalidatePath("/proxies");
+  revalidatePath("/accounts");
+  revalidatePath("/");
+  redirect("/proxies");
+}
+
+export async function rotateProxyAssignmentAction(formData: FormData) {
+  await postJson("/api/proxies/assignments/rotate", {
+    key: formData.get("key")
+  });
+
+  revalidatePath("/proxies");
+  revalidatePath("/accounts");
+  revalidatePath("/");
+  redirect("/proxies");
 }
 
 export async function connectAccountAction(formData: FormData) {

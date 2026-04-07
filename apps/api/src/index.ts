@@ -1,4 +1,7 @@
+import { installProxyAwareFetch } from "./fetch-with-proxy.js";
 import { app } from "./server.js";
+
+installProxyAwareFetch();
 
 const port = Number(process.env.API_PORT ?? 4000);
 const host = "0.0.0.0";
