@@ -1963,14 +1963,21 @@ app.post("/api/openclaw/actions", async (request, reply) => {
     : undefined;
   const platform = account?.platform;
   const connector = platform ? connectorFactory(platform) : undefined;
-  const officialExecution =
-    connector && account
-      ? await executePlatformAction(account.id, account.platform, payload.action, payload.payload)
-      : null;
+  const preferSessionExecution =
+    account?.connectorMode === "session_auth" || (platform ? platformRegistry[platform].requiresSessionAtLaunch : false);
   const sessionExecution =
-    !officialExecution && account && account.connectorMode !== "api_auth"
+    account && account.connectorMode !== "api_auth" && preferSessionExecution
       ? await executeSessionAction(account.id, account.platform, payload.action, payload.payload)
       : null;
+  const officialExecution =
+    connector && account && !sessionExecution
+      ? await executePlatformAction(account.id, account.platform, payload.action, payload.payload)
+      : null;
+  const fallbackSessionExecution =
+    !sessionExecution && !officialExecution && account && account.connectorMode !== "api_auth"
+      ? await executeSessionAction(account.id, account.platform, payload.action, payload.payload)
+      : null;
+  const resolvedSessionExecution = sessionExecution ?? fallbackSessionExecution;
   const execution =
     connector && account
       ? await connector.execute(
@@ -2021,11 +2028,11 @@ app.post("/api/openclaw/actions", async (request, reply) => {
     mode: account?.connectorMode ?? "api_auth",
     action: payload.action,
     queuedAt: new Date().toISOString(),
-    execution: officialExecution ?? sessionExecution ?? execution,
+    execution: officialExecution ?? resolvedSessionExecution ?? execution,
     note:
       officialExecution
         ? "Action executed against the official provider integration."
-        : sessionExecution
+        : resolvedSessionExecution
           ? "Action executed through the isolated session-runner."
           : "Action accepted. Worker execution and session handling occur in downstream services."
   };

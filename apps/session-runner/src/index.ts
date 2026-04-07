@@ -607,7 +607,7 @@ async function executeAttempt(
         (typeof input.payload.url === "string" && input.payload.url) ||
         defaultUrlForPlatform(input.platform);
 
-      await gotoPage(page, targetUrl, input.platform);
+      await gotoPage(page, targetUrl, input.platform, proxy?.label ?? null);
 
       for (const rawStep of steps) {
         const step = stepSchema.parse(rawStep);
