@@ -1,3 +1,4 @@
+import { platformSchema } from "@content-empire/shared";
 import {
   deleteProxyAction,
   rotateProxyAssignmentAction,
@@ -8,24 +9,23 @@ import { getAccounts, getProxies } from "../../lib/api";
 
 export const dynamic = "force-dynamic";
 
-const platformList = [
-  "x",
-  "linkedin",
-  "medium",
-  "substack",
-  "quora",
-  "reddit",
-  "bluesky",
-  "pinterest",
-  "facebook",
-  "instagram",
-  "tiktok",
-  "youtube"
-];
+const platformList = [...platformSchema.options];
 
 const proxyExample = "http://user:pass@203.0.113.20:8080";
 
-export default async function ProxiesPage() {
+type ProxiesPageProps = {
+  searchParams: Promise<{
+    error?: string | string[];
+  }>;
+};
+
+function readSearchParam(value: string | string[] | undefined) {
+  return Array.isArray(value) ? value[0] : value;
+}
+
+export default async function ProxiesPage({ searchParams }: ProxiesPageProps) {
+  const params = await searchParams;
+  const errorMessage = readSearchParam(params.error);
   const [proxySnapshot, accounts] = await Promise.all([getProxies(), getAccounts()]);
   const accountMap = new Map(accounts.map((account) => [account.id, account.displayName]));
   const enabledCount = proxySnapshot.proxies.filter((proxy) => proxy.enabled).length;
@@ -60,6 +60,11 @@ export default async function ProxiesPage() {
             <h2>Add proxy</h2>
             <p>Store a proxy once, then let the app assign and rotate it automatically.</p>
           </header>
+          {errorMessage ? (
+            <p className="form-status form-status-error" role="alert">
+              {errorMessage}
+            </p>
+          ) : null}
           <form action={upsertProxyAction} className="stack-form">
             <div className="grid-form">
               <label className="field-block">

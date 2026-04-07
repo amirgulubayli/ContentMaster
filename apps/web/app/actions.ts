@@ -1,9 +1,11 @@
 "use server";
 
+import { platformSchema } from "@content-empire/shared";
 import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
 
 const apiBaseUrl = process.env.API_URL ?? "http://127.0.0.1:4000";
+const proxyPlatformSet = new Set<string>(platformSchema.options);
 
 async function postJson(path: string, body: object, token?: string) {
   const response = await fetch(`${apiBaseUrl}${path}`, {
@@ -52,6 +54,71 @@ function parseCsvField(formData: FormData, key: string) {
     .split(",")
     .map((value) => value.trim())
     .filter(Boolean);
+}
+
+function getTrimmedField(formData: FormData, key: string) {
+  return String(formData.get(key) ?? "").trim();
+}
+
+function formatIssue(issue: { path?: Array<string | number>; message?: unknown }) {
+  const path = Array.isArray(issue.path) && issue.path.length > 0 ? `${issue.path.map(String).join(".")}: ` : "";
+  const message = typeof issue.message === "string" ? issue.message : "";
+  return `${path}${message}`.trim();
+}
+
+function getActionErrorMessage(error: unknown, fallback: string) {
+  if (!(error instanceof Error)) {
+    return fallback;
+  }
+
+  const message = error.message.trim();
+  if (!message) {
+    return fallback;
+  }
+
+  try {
+    const parsed = JSON.parse(message) as {
+      error?: unknown;
+      issues?: Array<{ path?: Array<string | number>; message?: unknown }>;
+    };
+
+    if (typeof parsed.error === "string") {
+      const issueSummary = Array.isArray(parsed.issues)
+        ? parsed.issues.map(formatIssue).find(Boolean)
+        : null;
+      return issueSummary ? `${parsed.error}: ${issueSummary}` : parsed.error;
+    }
+  } catch {
+    return message;
+  }
+
+  return message;
+}
+
+function buildProxyErrorRedirect(message: string) {
+  return `/proxies?${new URLSearchParams({ error: message }).toString()}`;
+}
+
+function parseProxyPlatformTargets(formData: FormData) {
+  const values: string[] = [];
+  const invalid: string[] = [];
+
+  for (const value of parseCsvField(formData, "platformTargets")) {
+    const normalized = value.toLowerCase();
+    if (!proxyPlatformSet.has(normalized)) {
+      invalid.push(value);
+      continue;
+    }
+
+    if (!values.includes(normalized)) {
+      values.push(normalized);
+    }
+  }
+
+  return {
+    values,
+    invalid
+  };
 }
 
 export async function createProjectAction(formData: FormData) {
@@ -109,16 +176,44 @@ export async function updateAccountSetupAction(formData: FormData) {
 }
 
 export async function upsertProxyAction(formData: FormData) {
-  await postJson("/api/proxies", {
-    proxyId: String(formData.get("proxyId") ?? "").trim() || undefined,
-    label: formData.get("label"),
-    raw: formData.get("raw"),
-    provider: formData.get("provider"),
-    countryCode: formData.get("countryCode"),
-    platformTargets: parseCsvField(formData, "platformTargets"),
-    enabled: formData.get("enabled") === "on",
-    notes: formData.get("notes")
-  });
+  const label = getTrimmedField(formData, "label");
+  const raw = getTrimmedField(formData, "raw");
+  const provider = getTrimmedField(formData, "provider");
+  const countryCode = getTrimmedField(formData, "countryCode");
+  const notes = getTrimmedField(formData, "notes");
+  const { values: platformTargets, invalid } = parseProxyPlatformTargets(formData);
+
+  if (label.length < 2) {
+    redirect(buildProxyErrorRedirect("Label must be at least 2 characters."));
+  }
+
+  if (raw.length < 3) {
+    redirect(buildProxyErrorRedirect("Enter a proxy string before saving."));
+  }
+
+  if (invalid.length > 0) {
+    const noun = invalid.length === 1 ? "target" : "targets";
+    redirect(
+      buildProxyErrorRedirect(
+        `Unsupported platform ${noun}: ${invalid.join(", ")}. Use: ${platformSchema.options.join(", ")}.`
+      )
+    );
+  }
+
+  try {
+    await postJson("/api/proxies", {
+      proxyId: getTrimmedField(formData, "proxyId") || undefined,
+      label,
+      raw,
+      provider,
+      countryCode,
+      platformTargets,
+      enabled: formData.get("enabled") === "on",
+      notes
+    });
+  } catch (error) {
+    redirect(buildProxyErrorRedirect(getActionErrorMessage(error, "Could not save proxy.")));
+  }
 
   revalidatePath("/proxies");
   revalidatePath("/accounts");
@@ -127,9 +222,18 @@ export async function upsertProxyAction(formData: FormData) {
 }
 
 export async function deleteProxyAction(formData: FormData) {
-  await postJson("/api/proxies/delete", {
-    proxyId: formData.get("proxyId")
-  });
+  const proxyId = getTrimmedField(formData, "proxyId");
+  if (!proxyId) {
+    redirect(buildProxyErrorRedirect("Select a proxy to delete."));
+  }
+
+  try {
+    await postJson("/api/proxies/delete", {
+      proxyId
+    });
+  } catch (error) {
+    redirect(buildProxyErrorRedirect(getActionErrorMessage(error, "Could not delete proxy.")));
+  }
 
   revalidatePath("/proxies");
   revalidatePath("/accounts");
@@ -138,9 +242,18 @@ export async function deleteProxyAction(formData: FormData) {
 }
 
 export async function rotateProxyAssignmentAction(formData: FormData) {
-  await postJson("/api/proxies/assignments/rotate", {
-    key: formData.get("key")
-  });
+  const key = getTrimmedField(formData, "key");
+  if (!key) {
+    redirect(buildProxyErrorRedirect("Select a sticky assignment to rotate."));
+  }
+
+  try {
+    await postJson("/api/proxies/assignments/rotate", {
+      key
+    });
+  } catch (error) {
+    redirect(buildProxyErrorRedirect(getActionErrorMessage(error, "Could not rotate proxy assignment.")));
+  }
 
   revalidatePath("/proxies");
   revalidatePath("/accounts");

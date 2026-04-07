@@ -92,6 +92,7 @@ import {
   buildProxySnapshot,
   deleteProxyFromState,
   getAccountProxyKey,
+  parseProxyRecord,
   recordProxyFailure,
   recordProxySuccess,
   rotateProxyForContext,
@@ -495,6 +496,15 @@ app.post("/api/proxies", async (request, reply) => {
     failureCount: existing?.failureCount ?? 0,
     consecutiveFailures: existing?.consecutiveFailures ?? 0
   };
+
+  try {
+    parseProxyRecord(nextRecord);
+  } catch (error) {
+    reply.code(400);
+    return {
+      error: error instanceof Error ? error.message : "Invalid proxy format"
+    };
+  }
 
   if (existing) {
     state.proxies = state.proxies.map((proxy) => (proxy.id === existing.id ? nextRecord : proxy));
