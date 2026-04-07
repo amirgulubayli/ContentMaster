@@ -63,6 +63,146 @@ function defaultUrlForPlatform(platform: string) {
   return urls[platform] ?? "https://example.com/";
 }
 
+function normalizeRedditRecipient(value: string) {
+  return value.trim().replace(/^\/?u\//i, "");
+}
+
+function getStringPayloadValue(payload: Record<string, unknown>, keys: string[]) {
+  for (const key of keys) {
+    const value = payload[key];
+    if (typeof value === "string" && value.trim()) {
+      return value.trim();
+    }
+  }
+
+  return undefined;
+}
+
+function resolveRedditComposeUrl(payload: Record<string, unknown>) {
+  const explicitUrl = getStringPayloadValue(payload, ["composeUrl", "targetUrl", "url"]);
+  const recipient =
+    getStringPayloadValue(payload, ["to", "username", "recipient", "handle"]) ??
+    (() => {
+      if (!explicitUrl) return undefined;
+
+      try {
+        return new URL(explicitUrl).searchParams.get("to") ?? undefined;
+      } catch {
+        return undefined;
+      }
+    })();
+
+  const normalizedRecipient = recipient ? normalizeRedditRecipient(recipient) : undefined;
+  const composeUrl =
+    explicitUrl ??
+    (normalizedRecipient
+      ? `https://www.reddit.com/message/compose/?to=${encodeURIComponent(normalizedRecipient)}`
+      : undefined);
+
+  return {
+    composeUrl,
+    recipient: normalizedRecipient
+  };
+}
+
+async function executeRedditSendDm(page: import("playwright").Page, payload: Record<string, unknown>) {
+  const { composeUrl, recipient } = resolveRedditComposeUrl(payload);
+  const title = getStringPayloadValue(payload, ["title", "subject"]);
+  const message = getStringPayloadValue(payload, ["message", "text", "body"]);
+  const submitSelector =
+    getStringPayloadValue(payload, ["submitSelector"]) ?? 'compose-message-form button[type="submit"]';
+  const enabledSubmitSelector = `${submitSelector}:not([disabled])`;
+  const submitTimeoutMs =
+    typeof payload.submitTimeoutMs === "number" && Number.isFinite(payload.submitTimeoutMs)
+      ? payload.submitTimeoutMs
+      : 15000;
+
+  if (!composeUrl) {
+    throw new Error("Reddit send_dm requires composeUrl/targetUrl or a recipient in payload.to");
+  }
+
+  if (!recipient) {
+    throw new Error("Reddit send_dm requires a recipient in payload.to or composeUrl query param");
+  }
+
+  if (!title) {
+    throw new Error("Reddit send_dm requires payload.title");
+  }
+
+  if (!message) {
+    throw new Error("Reddit send_dm requires payload.message");
+  }
+
+  await page.goto(composeUrl, { waitUntil: "domcontentloaded" });
+  await page.waitForSelector("compose-message-form", { timeout: submitTimeoutMs });
+  await page.waitForSelector('faceplate-text-input[name="message-recipient-input"]', {
+    timeout: submitTimeoutMs
+  });
+
+  const result = await page.evaluate(
+    ({ to, title, message }) => {
+      const setElementValue = (element: HTMLInputElement | HTMLTextAreaElement, value: string) => {
+        const prototype =
+          element instanceof HTMLTextAreaElement ? HTMLTextAreaElement.prototype : HTMLInputElement.prototype;
+        const descriptor = Object.getOwnPropertyDescriptor(prototype, "value");
+
+        element.focus();
+        descriptor?.set?.call(element, "");
+        element.dispatchEvent(new Event("input", { bubbles: true, composed: true }));
+        descriptor?.set?.call(element, value);
+        element.dispatchEvent(new Event("input", { bubbles: true, composed: true }));
+        element.dispatchEvent(new Event("change", { bubbles: true, composed: true }));
+        element.blur();
+      };
+
+      const setInput = (
+        hostSelector: string,
+        inputSelector: string,
+        value: string
+      ) => {
+        const host = document.querySelector(hostSelector);
+        if (!(host instanceof HTMLElement) || !host.shadowRoot) {
+          return false;
+        }
+
+        const input = host.shadowRoot.querySelector(inputSelector);
+        if (!(input instanceof HTMLInputElement) && !(input instanceof HTMLTextAreaElement)) {
+          return false;
+        }
+
+        setElementValue(input, value);
+        return input.value === value;
+      };
+
+      const okRecipient = setInput(
+        'faceplate-text-input[name="message-recipient-input"]',
+        'input[name="message-recipient-input"]',
+        to
+      );
+      const okTitle = setInput(
+        'faceplate-text-input[name="message-title"]',
+        'input[name="message-title"]',
+        title
+      );
+      const okMessage = setInput(
+        'faceplate-textarea-input[name="message-content"]',
+        'textarea[name="message-content"]',
+        message
+      );
+
+      return { okRecipient, okTitle, okMessage };
+    },
+    { to: recipient, title, message }
+  );
+
+  if (!result.okRecipient || !result.okTitle || !result.okMessage) {
+    throw new Error(`Reddit DM shadow input update failed: ${JSON.stringify(result)}`);
+  }
+
+  await page.waitForSelector(enabledSubmitSelector, { timeout: submitTimeoutMs });
+  await page.click(submitSelector);
+}
+
 async function executeStep(page: import("playwright").Page, step: z.infer<typeof stepSchema>) {
   switch (step.type) {
     case "goto":
@@ -144,19 +284,27 @@ app.post("/execute", async (request, reply) => {
     );
 
     const page = await context.newPage();
-    const targetUrl =
-      (typeof payload.targetUrl === "string" && payload.targetUrl) ||
-      (typeof payload.url === "string" && payload.url) ||
-      defaultUrlForPlatform(platform);
-    await page.goto(targetUrl, { waitUntil: "domcontentloaded" });
-
     const steps = Array.isArray(payload.steps) ? payload.steps : [];
     if (steps.length > 0) {
+      const targetUrl =
+        (typeof payload.targetUrl === "string" && payload.targetUrl) ||
+        (typeof payload.url === "string" && payload.url) ||
+        defaultUrlForPlatform(platform);
+      await page.goto(targetUrl, { waitUntil: "domcontentloaded" });
+
       for (const rawStep of steps) {
         const step = stepSchema.parse(rawStep);
         await executeStep(page, step);
       }
+    } else if (action === "send_dm" && platform === "reddit") {
+      await executeRedditSendDm(page, payload);
     } else {
+      const targetUrl =
+        (typeof payload.targetUrl === "string" && payload.targetUrl) ||
+        (typeof payload.url === "string" && payload.url) ||
+        defaultUrlForPlatform(platform);
+      await page.goto(targetUrl, { waitUntil: "domcontentloaded" });
+
       const text = typeof payload.message === "string" ? payload.message : typeof payload.text === "string" ? payload.text : "";
       const composeSelector = typeof payload.composeSelector === "string" ? payload.composeSelector : undefined;
       const submitSelector = typeof payload.submitSelector === "string" ? payload.submitSelector : undefined;
