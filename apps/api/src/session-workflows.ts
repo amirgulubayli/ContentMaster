@@ -232,6 +232,13 @@ export function buildSessionWorkflow(
     (typeof payload.url === "string" && payload.url) ||
     config.targetUrl;
 
+  if (platform === "reddit" && action === "send_dm") {
+    return {
+      targetUrl,
+      submitSelector: config.submitSelector
+    };
+  }
+
   const steps: SessionStep[] = [];
   if (targetUrl) {
     steps.push({ type: "goto", url: targetUrl });

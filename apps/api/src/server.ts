@@ -140,6 +140,29 @@ async function executeSessionAction(accountId: string, platform: string, action:
     payload,
     state.setup[accountId]?.sessionConfig ?? {}
   );
+  const sessionPayload = {
+    ...payload,
+    ...workflow
+  };
+
+  if (platform === "reddit" && action === "send_dm") {
+    delete sessionPayload.steps;
+    const forwardedSteps = sessionPayload.steps as unknown;
+    const hasStepsArray = Array.isArray(forwardedSteps);
+
+    app.log.info(
+      {
+        accountId,
+        platform,
+        action,
+        hasStepsArray,
+        stepCount: hasStepsArray ? forwardedSteps.length : undefined,
+        targetUrl: sessionPayload.targetUrl,
+        submitSelector: sessionPayload.submitSelector
+      },
+      "Forwarding Reddit DM to session-runner"
+    );
+  }
 
   const response = await fetch(`${process.env.SESSION_RUNNER_URL ?? "http://session-runner:4200"}/execute`, {
     method: "POST",
@@ -151,10 +174,7 @@ async function executeSessionAction(accountId: string, platform: string, action:
       platform,
       action,
       sessionBundle,
-      payload: {
-        ...payload,
-        ...workflow
-      }
+      payload: sessionPayload
     })
   });
 
@@ -277,7 +297,7 @@ async function executePlatformAction(accountId: string, platform: string, action
       return replyRedditComment(String(tokenSet.accessToken), payload.parentId, payload.message);
     }
 
-    if ((action === "send_dm" || action === "analyze_performance") && tokenSet.accessToken) {
+    if (action === "analyze_performance" && tokenSet.accessToken) {
       return fetchRedditInbox(String(tokenSet.accessToken));
     }
   }
