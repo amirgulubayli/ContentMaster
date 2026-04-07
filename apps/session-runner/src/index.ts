@@ -211,6 +211,15 @@ async function captureRedditComposeState(page: import("playwright").Page) {
   });
 }
 
+async function captureRedditPageContext(page: import("playwright").Page) {
+  return page.evaluate(() => ({
+    url: window.location.href,
+    title: document.title,
+    bodyTextPreview: document.body?.innerText?.slice(0, 500) ?? "",
+    hasComposeForm: Boolean(document.querySelector("compose-message-form"))
+  }));
+}
+
 async function executeRedditSendDm(page: import("playwright").Page, payload: Record<string, unknown>) {
   const { composeUrl, recipient } = resolveRedditComposeUrl(payload);
   const title = getStringPayloadValue(payload, ["title", "subject"]);
@@ -240,7 +249,13 @@ async function executeRedditSendDm(page: import("playwright").Page, payload: Rec
   }
 
   await page.goto(composeUrl, { waitUntil: "domcontentloaded" });
-  await page.waitForSelector("compose-message-form", { timeout: submitTimeoutMs });
+  try {
+    await page.waitForSelector("compose-message-form", { timeout: submitTimeoutMs });
+  } catch (error) {
+    const pageContext = await captureRedditPageContext(page);
+    app.log.error({ pageContext }, "Reddit compose form did not render");
+    throw error;
+  }
   const recipientField = await getShadowFieldHandle(
     page,
     'faceplate-text-input[name="message-recipient-input"]',

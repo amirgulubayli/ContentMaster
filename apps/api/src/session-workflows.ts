@@ -234,7 +234,6 @@ export function buildSessionWorkflow(
 
   if (platform === "reddit" && action === "send_dm") {
     return {
-      targetUrl,
       submitSelector: config.submitSelector
     };
   }
