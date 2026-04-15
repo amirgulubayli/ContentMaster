@@ -157,7 +157,7 @@ export const platformRegistry: Record<Platform, PlatformProfile> = {
     sessionFallback: true,
     requiresSessionAtLaunch: false,
     dmSupport: "hybrid",
-    notes: "Meta business path first, session fallback optional per account. Official OAuth, publishing, comments, and metrics paths are wired for supported business assets.",
+    notes: "Instagram Login is the primary path for publishing, comment replies, and business messaging. Use session fallback only if you truly need an unsupported workflow.",
     features: [
       "publish_image",
       "publish_video",
@@ -166,6 +166,16 @@ export const platformRegistry: Record<Platform, PlatformProfile> = {
       "reply_dm",
       "read_metrics"
     ],
+    liveExecutionImplemented: true
+  },
+  threads: {
+    platform: "threads",
+    defaultMode: "api_auth",
+    sessionFallback: false,
+    requiresSessionAtLaunch: false,
+    dmSupport: "none",
+    notes: "Threads is API-first. OAuth, publishing, reply posting, and insights are wired without a browser-session dependency.",
+    features: ["publish_text", "publish_image", "publish_video", "reply_comment", "read_metrics"],
     liveExecutionImplemented: true
   },
   tiktok: {
@@ -322,13 +332,31 @@ export const platformSetupBlueprints: Record<Platform, PlatformSetupBlueprint> =
     platform: "instagram",
     supportedModes: ["api_auth", "hybrid_auth"],
     apiFields: apiFields(
-      { key: "instagramBusinessId", label: "Instagram Business ID", kind: "text", required: false, help: "Business account ID if known." }
+      { key: "instagramBusinessId", label: "Instagram Account ID", kind: "text", required: false, help: "Instagram business/professional account ID if you want to pin a specific asset." }
     ),
     sessionFields: sessionFields(
       { key: "captureMode", label: "Capture Mode", kind: "select", required: false, help: "Use for hybrid fallback.", options: ["cookies_only", "bundle", "profile"] },
       workflowOverridesField
     ),
-    notes: ["Business messaging and publishing are API-first.", "Hybrid fallback is optional for unsupported flows.", "Official OAuth callback and provider API execution are wired for supported business assets."],
+    notes: [
+      "Instagram Login is the preferred setup for publishing, comment moderation, and business messaging.",
+      "Hybrid fallback is optional for unsupported flows only.",
+      "If you need hashtag discovery or some insights paths, Meta currently points those to the Facebook Login setup."
+    ],
+    liveExecutionImplemented: true
+  },
+  threads: {
+    platform: "threads",
+    supportedModes: ["api_auth"],
+    apiFields: apiFields(
+      { key: "threadsUserId", label: "Threads User ID", kind: "text", required: false, help: "Threads profile ID if you want to pin the account manually." }
+    ),
+    sessionFields: [],
+    notes: [
+      "Threads is API-only in this codebase.",
+      "OAuth, post publishing, reply publishing, and insights are handled through the Threads API.",
+      "No session bundle is needed for the intended production path."
+    ],
     liveExecutionImplemented: true
   },
   tiktok: {

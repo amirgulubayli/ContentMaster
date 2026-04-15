@@ -11,6 +11,7 @@ export const platformSchema = z.enum([
   "pinterest",
   "facebook",
   "instagram",
+  "threads",
   "tiktok",
   "youtube"
 ]);

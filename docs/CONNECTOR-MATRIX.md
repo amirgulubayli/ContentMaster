@@ -29,6 +29,7 @@
 | Pinterest | `api_auth` | Yes | None | organic pin/board actions, metrics |
 | Facebook | `hybrid_auth` | Yes | API | business-surface post, video, comments, messaging |
 | Instagram | `hybrid_auth` | Yes | Hybrid | image/reel publishing, comments, inbox, DM reply |
+| Threads | `api_auth` | No | None | text/image/video publishing, reply publishing, insights |
 | TikTok | `hybrid_auth` | Yes | Session-optional | direct post/upload, comments, optional inbox |
 | YouTube | `api_auth` | No | None | Shorts upload, metadata updates, comment replies, metrics |
 

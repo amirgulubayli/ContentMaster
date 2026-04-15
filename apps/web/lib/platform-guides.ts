@@ -278,18 +278,19 @@ export const platformGuides: Record<Platform, PlatformGuide> = {
     credentialNotes: ["Current operating verdict: Pinterest is cookie-first for now."]
   },
   facebook: {
-    currentPriority: "Backburner for now. Official auth path still needs to be finished in operations.",
-    recommendedMode: "hybrid_auth",
-    status: "Defer live rollout until auth is finished.",
-    envManagedCredentials: ["META_APP_ID", "META_APP_SECRET"],
-    accountFields: ["pageId if you want to pin a specific page", "captureMode only if using fallback session"],
+    currentPriority: "Use the dedicated Facebook app for Pages OAuth. Keep session fallback as an exception, not the default.",
+    recommendedMode: "api_auth or hybrid_auth",
+    status: "Official Pages OAuth, posting, comment replies, messaging, and page insights are wired.",
+    envManagedCredentials: ["META_FACEBOOK_APP_ID", "META_FACEBOOK_APP_SECRET", "META_API_VERSION"],
+    accountFields: ["pageId if you want to pin a specific Page", "captureMode only if using hybrid fallback"],
     authGuide: [
-      "Create a Meta developer app and register the callback URL below.",
-      "Link the correct Page/business assets in Meta Business Manager.",
-      "Finish OAuth later when this platform comes back into focus."
+      "Create or select the Facebook Pages Meta app.",
+      "Add the Pages use case and request pages_show_list, pages_read_engagement, pages_manage_posts, pages_manage_metadata, and pages_messaging.",
+      "Register the callback URL shown below in the Facebook Login settings for the app.",
+      "Store the Facebook app ID and secret in the VPS .env file, then start OAuth from this account page."
     ],
     cookieGuide: [
-      "If you need experiments before full auth rollout, attach a fallback session bundle to the account."
+      "Only attach a fallback session bundle if you truly need an unsupported workflow or a temporary recovery path."
     ],
     sessionWizard: {
       title: "Facebook fallback bundle",
@@ -305,21 +306,26 @@ export const platformGuides: Record<Platform, PlatformGuide> = {
         "Inbox opens if message fallback is needed."
       ]
     },
-    callbackUrl: "http://100.111.98.27:8088/api/oauth/meta/callback"
+    callbackUrl: "https://your-public-app-url/api/oauth/facebook/callback",
+    credentialNotes: [
+      "Use a separate Facebook app for dev and prod if possible.",
+      "The callback URL must match APP_URL exactly in the server .env."
+    ]
   },
   instagram: {
-    currentPriority: "Backburner for now. Official auth path still needs to be finished in operations.",
-    recommendedMode: "hybrid_auth",
-    status: "Defer live rollout until auth is finished.",
-    envManagedCredentials: ["META_APP_ID", "META_APP_SECRET"],
-    accountFields: ["instagramBusinessId if you want to pin a specific asset", "captureMode only if using fallback session"],
+    currentPriority: "Use Instagram Login as the primary path and keep session fallback for edge cases only.",
+    recommendedMode: "api_auth or hybrid_auth",
+    status: "Instagram Login OAuth, publishing, comment replies, and business messaging are wired for business/professional accounts.",
+    envManagedCredentials: ["META_INSTAGRAM_APP_ID", "META_INSTAGRAM_APP_SECRET", "META_API_VERSION"],
+    accountFields: ["instagramBusinessId if you want to pin a specific Instagram account ID", "captureMode only if using hybrid fallback"],
     authGuide: [
-      "Use the Meta developer app and callback URL below.",
-      "Make sure the Instagram account is business/creator and attached to the correct Meta business assets.",
-      "Finish OAuth later when this platform comes back into focus."
+      "Create or select the Instagram API with Instagram Login app.",
+      "Add instagram_business_basic, instagram_business_content_publish, instagram_manage_comments, and instagram_business_manage_messages.",
+      "Assign the Instagram Tester role before generating tokens in Meta if you are still in development mode.",
+      "Register the callback URL shown below in the Instagram app settings and store the app credentials in the VPS .env."
     ],
     cookieGuide: [
-      "If you need experiments before full auth rollout, attach a fallback session bundle to the account."
+      "Only keep a session bundle if you need a fallback for a UI-only workflow that the official API cannot handle."
     ],
     sessionWizard: {
       title: "Instagram fallback bundle",
@@ -335,7 +341,29 @@ export const platformGuides: Record<Platform, PlatformGuide> = {
         "DM surface opens if inbox fallback is needed."
       ]
     },
-    callbackUrl: "http://100.111.98.27:8088/api/oauth/meta/callback"
+    callbackUrl: "https://your-public-app-url/api/oauth/instagram/callback",
+    credentialNotes: [
+      "Meta currently points hashtag discovery and some insight workflows to the Facebook Login setup, so keep that as a separate lane if you need it.",
+      "The callback URL must match APP_URL exactly in the server .env."
+    ]
+  },
+  threads: {
+    currentPriority: "Use the dedicated Threads app and API-only execution path.",
+    recommendedMode: "api_auth",
+    status: "Threads OAuth, post publishing, reply publishing, and insights are wired.",
+    envManagedCredentials: ["META_THREADS_APP_ID", "META_THREADS_APP_SECRET", "THREADS_API_VERSION"],
+    accountFields: ["threadsUserId if you want to pin a specific Threads profile"],
+    authGuide: [
+      "Create or select the Threads API app.",
+      "Add the Threads use case and request threads_basic, threads_content_publish, threads_manage_replies, and threads_manage_insights as needed.",
+      "Register the callback URL shown below in the Threads app settings.",
+      "Store the Threads app ID and secret in the VPS .env, then start OAuth from this account page."
+    ],
+    callbackUrl: "https://your-public-app-url/api/oauth/threads/callback",
+    credentialNotes: [
+      "Threads does not need a session bundle for the intended production path.",
+      "Use a dedicated Threads app for dev and prod if you want cleaner blast-radius separation."
+    ]
   },
   tiktok: {
     currentPriority: "Backburner for now. Auth setup is unstable enough that it should not be the current focus.",

@@ -97,8 +97,12 @@ export default async function AccountDetailPage({
   const { account, blueprint, readiness, setup } = profile;
   const guide = platformGuides[account.platform];
   const authStartUrl =
-    account.platform === "facebook" || account.platform === "instagram"
-      ? `/api/auth/meta/start?accountId=${account.id}`
+    account.platform === "facebook"
+      ? `/api/auth/facebook/start?accountId=${account.id}`
+      : account.platform === "instagram"
+        ? `/api/auth/instagram/start?accountId=${account.id}`
+        : account.platform === "threads"
+          ? `/api/auth/threads/start?accountId=${account.id}`
       : account.platform === "tiktok"
         ? `/api/auth/tiktok/start?accountId=${account.id}`
         : account.platform === "x"
@@ -207,15 +211,19 @@ export default async function AccountDetailPage({
                   Start{" "}
                   {account.platform === "tiktok"
                     ? "TikTok"
-                    : account.platform === "facebook" || account.platform === "instagram"
-                      ? "Meta"
-                      : account.platform === "youtube"
-                        ? "Google"
-                        : account.platform.charAt(0).toUpperCase() + account.platform.slice(1)}{" "}
+                    : account.platform === "youtube"
+                      ? "Google"
+                      : account.platform === "threads"
+                        ? "Threads"
+                        : account.platform === "facebook"
+                          ? "Facebook"
+                          : account.platform === "instagram"
+                            ? "Instagram"
+                            : account.platform.charAt(0).toUpperCase() + account.platform.slice(1)}{" "}
                   OAuth
                 </a>
               ) : null}
-              {profile.authConnection ? (
+              {profile.authConnection && account.platform !== "threads" ? (
                 <form action={refreshAuthAction} className="inline-form">
                   <input type="hidden" name="accountId" value={account.id} />
                   <button type="submit">Refresh auth</button>

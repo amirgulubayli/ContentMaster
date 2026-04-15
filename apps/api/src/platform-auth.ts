@@ -6,6 +6,32 @@ type MetaTokenResponse = {
   expires_in?: number;
 };
 
+type InstagramTokenResponse = {
+  access_token: string;
+  expires_in?: number;
+  user_id?: number | string;
+  permissions?: string[];
+};
+
+type InstagramProfileResponse = {
+  id?: string;
+  user_id?: number | string;
+  username?: string;
+  name?: string;
+};
+
+type ThreadsTokenResponse = {
+  access_token: string;
+  token_type?: string;
+  user_id?: number | string;
+};
+
+type ThreadsProfileResponse = {
+  id?: string;
+  username?: string;
+  name?: string;
+};
+
 type TikTokTokenResponse = {
   access_token: string;
   expires_in: number;
@@ -25,13 +51,117 @@ type GenericOauthTokenResponse = {
 };
 
 const metaVersion = process.env.META_API_VERSION ?? "v23.0";
+const threadsVersion = process.env.THREADS_API_VERSION ?? "v1.0";
+
+type MetaPlatform = "facebook" | "instagram" | "threads";
 
 function getAppUrl() {
   return process.env.APP_URL ?? "http://localhost:3000";
 }
 
-export function buildMetaRedirectUri() {
-  return `${getAppUrl()}/api/oauth/meta/callback`;
+function getOauthRedirectBaseUrl(provider: string) {
+  if (provider === "google") {
+    return process.env.OAUTH_PUBLIC_URL ?? getAppUrl();
+  }
+
+  return getAppUrl();
+}
+
+function getMetaCredentialNames(platform: MetaPlatform) {
+  if (platform === "facebook") {
+    return {
+      appId: ["META_FACEBOOK_APP_ID", "META_APP_ID"],
+      appSecret: ["META_FACEBOOK_APP_SECRET", "META_APP_SECRET"]
+    };
+  }
+
+  if (platform === "instagram") {
+    return {
+      appId: ["META_INSTAGRAM_APP_ID", "META_APP_ID"],
+      appSecret: ["META_INSTAGRAM_APP_SECRET", "META_APP_SECRET"]
+    };
+  }
+
+  return {
+    appId: ["META_THREADS_APP_ID", "META_APP_ID"],
+    appSecret: ["META_THREADS_APP_SECRET", "META_APP_SECRET"]
+  };
+}
+
+function getMetaCredentialValue(keys: string[]) {
+  for (const key of keys) {
+    const value = process.env[key];
+    if (value) {
+      return value;
+    }
+  }
+
+  return null;
+}
+
+function requireMetaAppId(platform: MetaPlatform) {
+  const credentialNames = getMetaCredentialNames(platform);
+  const appId = getMetaCredentialValue(credentialNames.appId);
+  if (!appId) {
+    throw new Error(`${credentialNames.appId.join(" or ")} is not configured`);
+  }
+
+  return appId;
+}
+
+function requireMetaAppCredentials(platform: MetaPlatform) {
+  const credentialNames = getMetaCredentialNames(platform);
+  const appId = getMetaCredentialValue(credentialNames.appId);
+  const appSecret = getMetaCredentialValue(credentialNames.appSecret);
+
+  if (!appId || !appSecret) {
+    throw new Error(
+      `${credentialNames.appId.join(" or ")} and ${credentialNames.appSecret.join(" or ")} must be configured`
+    );
+  }
+
+  return { appId, appSecret };
+}
+
+export function buildPlatformRedirectUri(platform: MetaPlatform) {
+  return `${getAppUrl()}/api/oauth/${platform}/callback`;
+}
+
+export const FACEBOOK_SCOPES = [
+  "pages_show_list",
+  "pages_read_engagement",
+  "pages_manage_posts",
+  "pages_manage_metadata",
+  "pages_messaging"
+];
+
+export const INSTAGRAM_SCOPES = [
+  "instagram_business_basic",
+  "instagram_business_content_publish",
+  "instagram_manage_comments",
+  "instagram_business_manage_messages"
+];
+
+export const THREADS_SCOPES = [
+  "threads_basic",
+  "threads_content_publish",
+  "threads_manage_replies",
+  "threads_manage_insights"
+];
+
+export function buildFacebookAuthUrl() {
+  requireMetaAppId("facebook");
+  return new URL(`https://www.facebook.com/${metaVersion}/dialog/oauth`);
+}
+
+export function buildInstagramAuthUrl() {
+  requireMetaAppId("instagram");
+  return new URL("https://www.instagram.com/oauth/authorize");
+}
+
+export function buildThreadsAuthUrl() {
+  requireMetaAppId("threads");
+  return new URL("https://threads.net/oauth/authorize");
 }
 
 export function buildTikTokRedirectUri() {
@@ -40,28 +170,6 @@ export function buildTikTokRedirectUri() {
 
 export function createOauthState() {
   return randomBytes(24).toString("hex");
-}
-
-export function buildMetaAuthUrl() {
-  const appId = process.env.META_APP_ID;
-  if (!appId) {
-    throw new Error("META_APP_ID is not configured");
-  }
-
-  const scopes = [
-    "pages_show_list",
-    "pages_read_engagement",
-    "pages_manage_posts",
-    "pages_manage_metadata",
-    "pages_messaging",
-    "instagram_basic",
-    "instagram_content_publish",
-    "instagram_manage_comments",
-    "instagram_manage_messages",
-    "business_management"
-  ];
-
-  return new URL(`https://www.facebook.com/${metaVersion}/dialog/oauth`);
 }
 
 export function buildTikTokAuthUrl() {
@@ -74,7 +182,7 @@ export function buildTikTokAuthUrl() {
 }
 
 export function buildGenericRedirectUri(provider: string) {
-  return `${getAppUrl()}/api/oauth/${provider}/callback`;
+  return `${getOauthRedirectBaseUrl(provider)}/api/oauth/${provider}/callback`;
 }
 
 export function buildXAuthUrl() {
@@ -424,17 +532,12 @@ export async function fetchGoogleChannel(accessToken: string) {
   return response.json() as Promise<{ items?: Array<{ id?: string; snippet?: { title?: string } }> }>;
 }
 
-export async function exchangeMetaCode(code: string) {
-  const appId = process.env.META_APP_ID;
-  const appSecret = process.env.META_APP_SECRET;
-  if (!appId || !appSecret) {
-    throw new Error("Meta app credentials are not configured");
-  }
-
+export async function exchangeFacebookCode(code: string) {
+  const { appId, appSecret } = requireMetaAppCredentials("facebook");
   const url = new URL(`https://graph.facebook.com/${metaVersion}/oauth/access_token`);
   url.searchParams.set("client_id", appId);
   url.searchParams.set("client_secret", appSecret);
-  url.searchParams.set("redirect_uri", buildMetaRedirectUri());
+  url.searchParams.set("redirect_uri", buildPlatformRedirectUri("facebook"));
   url.searchParams.set("code", code);
 
   const response = await fetch(url, { method: "GET" });
@@ -445,13 +548,8 @@ export async function exchangeMetaCode(code: string) {
   return (await response.json()) as MetaTokenResponse;
 }
 
-export async function exchangeMetaLongLivedToken(accessToken: string) {
-  const appId = process.env.META_APP_ID;
-  const appSecret = process.env.META_APP_SECRET;
-  if (!appId || !appSecret) {
-    throw new Error("Meta app credentials are not configured");
-  }
-
+export async function exchangeFacebookLongLivedToken(accessToken: string) {
+  const { appId, appSecret } = requireMetaAppCredentials("facebook");
   const url = new URL(`https://graph.facebook.com/${metaVersion}/oauth/access_token`);
   url.searchParams.set("grant_type", "fb_exchange_token");
   url.searchParams.set("client_id", appId);
@@ -490,6 +588,92 @@ export async function fetchMetaBusinessContext(accessToken: string) {
   };
 
   return json.data ?? [];
+}
+
+export async function exchangeInstagramCode(code: string) {
+  const { appId, appSecret } = requireMetaAppCredentials("instagram");
+  const response = await fetch("https://api.instagram.com/oauth/access_token", {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/x-www-form-urlencoded"
+    },
+    body: new URLSearchParams({
+      client_id: appId,
+      client_secret: appSecret,
+      grant_type: "authorization_code",
+      redirect_uri: buildPlatformRedirectUri("instagram"),
+      code
+    })
+  });
+
+  if (!response.ok) {
+    throw new Error(await response.text());
+  }
+
+  return (await response.json()) as InstagramTokenResponse;
+}
+
+export async function refreshInstagramToken(accessToken: string) {
+  const url = new URL("https://graph.instagram.com/refresh_access_token");
+  url.searchParams.set("grant_type", "ig_refresh_token");
+  url.searchParams.set("access_token", accessToken);
+
+  const response = await fetch(url, { method: "GET" });
+  if (!response.ok) {
+    throw new Error(await response.text());
+  }
+
+  return (await response.json()) as MetaTokenResponse;
+}
+
+export async function fetchInstagramProfile(accessToken: string) {
+  const url = new URL(`https://graph.instagram.com/${metaVersion}/me`);
+  url.searchParams.set("fields", "id,user_id,username,name");
+  url.searchParams.set("access_token", accessToken);
+
+  const response = await fetch(url, { method: "GET" });
+  if (!response.ok) {
+    throw new Error(await response.text());
+  }
+
+  return (await response.json()) as InstagramProfileResponse;
+}
+
+export async function exchangeThreadsCode(code: string) {
+  const { appId, appSecret } = requireMetaAppCredentials("threads");
+  const response = await fetch("https://graph.threads.net/oauth/access_token", {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/x-www-form-urlencoded"
+    },
+    body: new URLSearchParams({
+      client_id: appId,
+      client_secret: appSecret,
+      grant_type: "authorization_code",
+      redirect_uri: buildPlatformRedirectUri("threads"),
+      code
+    })
+  });
+
+  if (!response.ok) {
+    throw new Error(await response.text());
+  }
+
+  return (await response.json()) as ThreadsTokenResponse;
+}
+
+export async function fetchThreadsProfile(accessToken: string, userId?: string) {
+  const objectId = userId && userId.length > 0 ? userId : "me";
+  const url = new URL(`https://graph.threads.net/${threadsVersion}/${objectId}`);
+  url.searchParams.set("fields", "id,username,name");
+  url.searchParams.set("access_token", accessToken);
+
+  const response = await fetch(url, { method: "GET" });
+  if (!response.ok) {
+    throw new Error(await response.text());
+  }
+
+  return (await response.json()) as ThreadsProfileResponse;
 }
 
 export async function exchangeTikTokCode(code: string) {

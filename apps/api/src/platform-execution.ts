@@ -33,9 +33,15 @@ type GenericTextPayload = {
 };
 
 const metaVersion = process.env.META_API_VERSION ?? "v23.0";
+const threadsVersion = process.env.THREADS_API_VERSION ?? "v1.0";
 
-async function postGraph(path: string, accessToken: string, body: URLSearchParams) {
-  const response = await fetch(`https://graph.facebook.com/${metaVersion}/${path}`, {
+async function postVersionedGraph(
+  baseUrl: string,
+  version: string,
+  path: string,
+  body: URLSearchParams
+) {
+  const response = await fetch(`${baseUrl}/${version}/${path}`, {
     method: "POST",
     headers: {
       "Content-Type": "application/x-www-form-urlencoded"
@@ -50,8 +56,14 @@ async function postGraph(path: string, accessToken: string, body: URLSearchParam
   return response.json();
 }
 
-async function getGraph(path: string, accessToken: string, params?: Record<string, string>) {
-  const url = new URL(`https://graph.facebook.com/${metaVersion}/${path}`);
+async function getVersionedGraph(
+  baseUrl: string,
+  version: string,
+  path: string,
+  accessToken: string,
+  params?: Record<string, string>
+) {
+  const url = new URL(`${baseUrl}/${version}/${path}`);
   url.searchParams.set("access_token", accessToken);
 
   for (const [key, value] of Object.entries(params ?? {})) {
@@ -72,9 +84,10 @@ export async function publishFacebookContent(accessToken: string, payload: MetaP
   }
 
   if (payload.videoUrl) {
-    return postGraph(
+    return postVersionedGraph(
+      "https://graph.facebook.com",
+      metaVersion,
       `${payload.pageId}/videos`,
-      accessToken,
       new URLSearchParams({
         access_token: accessToken,
         file_url: payload.videoUrl,
@@ -84,9 +97,10 @@ export async function publishFacebookContent(accessToken: string, payload: MetaP
   }
 
   if (payload.imageUrl) {
-    return postGraph(
+    return postVersionedGraph(
+      "https://graph.facebook.com",
+      metaVersion,
       `${payload.pageId}/photos`,
-      accessToken,
       new URLSearchParams({
         access_token: accessToken,
         url: payload.imageUrl,
@@ -95,9 +109,10 @@ export async function publishFacebookContent(accessToken: string, payload: MetaP
     );
   }
 
-  return postGraph(
+  return postVersionedGraph(
+    "https://graph.facebook.com",
+    metaVersion,
     `${payload.pageId}/feed`,
-    accessToken,
     new URLSearchParams({
       access_token: accessToken,
       message: payload.message ?? payload.caption ?? ""
@@ -124,13 +139,19 @@ export async function publishInstagramContent(accessToken: string, payload: Meta
     throw new Error("Instagram publishing requires imageUrl or videoUrl.");
   }
 
-  const container = (await postGraph(`${payload.instagramBusinessId}/media`, accessToken, mediaParams)) as {
+  const container = (await postVersionedGraph(
+    "https://graph.instagram.com",
+    metaVersion,
+    `${payload.instagramBusinessId}/media`,
+    mediaParams
+  )) as {
     id: string;
   };
 
-  return postGraph(
+  return postVersionedGraph(
+    "https://graph.instagram.com",
+    metaVersion,
     `${payload.instagramBusinessId}/media_publish`,
-    accessToken,
     new URLSearchParams({
       access_token: accessToken,
       creation_id: container.id
@@ -138,10 +159,23 @@ export async function publishInstagramContent(accessToken: string, payload: Meta
   );
 }
 
-export async function replyMetaComment(accessToken: string, commentId: string, message: string) {
-  return postGraph(
+export async function replyFacebookComment(accessToken: string, commentId: string, message: string) {
+  return postVersionedGraph(
+    "https://graph.facebook.com",
+    metaVersion,
     `${commentId}/replies`,
-    accessToken,
+    new URLSearchParams({
+      access_token: accessToken,
+      message
+    })
+  );
+}
+
+export async function replyInstagramComment(accessToken: string, commentId: string, message: string) {
+  return postVersionedGraph(
+    "https://graph.instagram.com",
+    metaVersion,
+    `${commentId}/replies`,
     new URLSearchParams({
       access_token: accessToken,
       message
@@ -150,9 +184,10 @@ export async function replyMetaComment(accessToken: string, commentId: string, m
 }
 
 export async function sendMetaDm(accessToken: string, recipientId: string, message: string) {
-  return postGraph(
+  return postVersionedGraph(
+    "https://graph.facebook.com",
+    metaVersion,
     "me/messages",
-    accessToken,
     new URLSearchParams({
       access_token: accessToken,
       messaging_type: "RESPONSE",
@@ -162,10 +197,82 @@ export async function sendMetaDm(accessToken: string, recipientId: string, messa
   );
 }
 
-export async function fetchMetaMetrics(accessToken: string, objectId: string, metrics: string[]) {
-  return getGraph(`${objectId}/insights`, accessToken, {
+export async function fetchFacebookMetrics(accessToken: string, objectId: string, metrics: string[]) {
+  return getVersionedGraph("https://graph.facebook.com", metaVersion, `${objectId}/insights`, accessToken, {
     metric: metrics.join(",")
   });
+}
+
+export async function fetchInstagramMetrics(accessToken: string, objectId: string, metrics: string[]) {
+  return getVersionedGraph("https://graph.instagram.com", metaVersion, `${objectId}/insights`, accessToken, {
+    metric: metrics.join(",")
+  });
+}
+
+export async function publishThreadsContent(
+  accessToken: string,
+  payload: {
+    threadsUserId?: string;
+    text?: string;
+    imageUrl?: string;
+    videoUrl?: string;
+    replyToId?: string;
+  }
+) {
+  if (!payload.threadsUserId) {
+    throw new Error("threadsUserId is required for Threads publishing.");
+  }
+
+  const mediaParams = new URLSearchParams({
+    access_token: accessToken
+  });
+
+  if (payload.replyToId) {
+    mediaParams.set("reply_to_id", payload.replyToId);
+  }
+
+  if (payload.videoUrl) {
+    mediaParams.set("media_type", "VIDEO");
+    mediaParams.set("video_url", payload.videoUrl);
+  } else if (payload.imageUrl) {
+    mediaParams.set("media_type", "IMAGE");
+    mediaParams.set("image_url", payload.imageUrl);
+  } else {
+    mediaParams.set("media_type", "TEXT");
+  }
+
+  if (payload.text) {
+    mediaParams.set("text", payload.text);
+  }
+
+  const container = (await postVersionedGraph(
+    "https://graph.threads.net",
+    threadsVersion,
+    `${payload.threadsUserId}/threads`,
+    mediaParams
+  )) as { id: string };
+
+  return postVersionedGraph(
+    "https://graph.threads.net",
+    threadsVersion,
+    `${payload.threadsUserId}/threads_publish`,
+    new URLSearchParams({
+      access_token: accessToken,
+      creation_id: container.id
+    })
+  );
+}
+
+export async function fetchThreadsMetrics(accessToken: string, threadsUserId: string, metrics: string[]) {
+  return getVersionedGraph(
+    "https://graph.threads.net",
+    threadsVersion,
+    `${threadsUserId}/threads_insights`,
+    accessToken,
+    {
+      metric: metrics.join(",")
+    }
+  );
 }
 
 export async function publishTikTokContent(accessToken: string, payload: TikTokPublishPayload) {

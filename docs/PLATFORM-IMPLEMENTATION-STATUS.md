@@ -22,8 +22,9 @@ This document reflects the implementation now present in the codebase.
 | Reddit | `session_auth`, `hybrid_auth`, `api_auth` | Yes | Yes | Yes | Yes | Yes | Run Reddit session-first for now. Keep official OAuth/API as optional later enablement if you decide to revisit app registration. |
 | Bluesky | `api_auth` | Yes | No | App password | Yes | No | Session creation and post execution are wired from app password setup. |
 | Pinterest | `session_auth`, `api_auth`, `hybrid_auth` | Yes | Yes | Yes | Yes | Yes | Run Pinterest session-first for now. Keep official OAuth/API as optional later enablement if app approval is ready. |
-| Facebook | `api_auth`, `hybrid_auth` | Yes | Yes | Yes | Yes | Yes | Meta business OAuth and official API flows are wired, with session fallback available. |
-| Instagram | `api_auth`, `hybrid_auth` | Yes | Yes | Yes | Yes | Yes | Meta business OAuth and official API flows are wired, with session fallback available. |
+| Facebook | `api_auth`, `hybrid_auth` | Yes | Yes | Yes | Yes | Yes | Facebook Pages OAuth, page publishing, comment replies, page messaging, and page insights are wired, with session fallback available. |
+| Instagram | `api_auth`, `hybrid_auth` | Yes | Yes | Yes | Yes | Yes | Instagram Login OAuth, publishing, comment replies, and business messaging are wired, with session fallback available for edge workflows. |
+| Threads | `api_auth` | Yes | No | Yes | Yes | No | Threads OAuth, publishing, reply publishing, and insights are wired as an API-only path. |
 | TikTok | `api_auth`, `hybrid_auth` | Yes | Yes | Yes | Yes | Yes | Official OAuth/refresh/publish/analytics paths are wired, with session fallback available. |
 | YouTube Shorts | `api_auth` | Yes | No | Yes | Yes | No | Google OAuth, upload initiation, comment reply, and analytics paths are wired. |
 

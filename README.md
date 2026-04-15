@@ -65,4 +65,13 @@ Production-oriented monorepo for a private social media operations platform with
 - Expose only narrowly scoped callback/webhook routes through your reverse proxy.
 - Use app-level login even when Tailscale already restricts network access.
 - Rotate `SESSION_ENCRYPTION_KEY` and machine tokens through a secret manager or secure VPS environment injection.
-- Use [docs/VPS-DEPLOYMENT.md](C:\BUISNESS%20FILES\AI%20PROJECTS\CONTENTHOUSE\docs\VPS-DEPLOYMENT.md) for the full runbook.
+- Use [docs/VPS-DEPLOYMENT.md](docs/VPS-DEPLOYMENT.md) for the full runbook.
+
+## Core docs
+
+- [Platform overview](docs/PLATFORM-OVERVIEW.md)
+- [Ultimate platform usage guide](docs/ULTIMATE-PLATFORM-USAGE-GUIDE.md)
+- [Platform vision](docs/PLATFORM-VISION.md)
+- [AI agent usage guide](docs/AI-AGENT-USAGE-GUIDE.md)
+- [Ultimate operator manual](docs/ULTIMATE-OPERATOR-MANUAL.md)
+- [Platform implementation status](docs/PLATFORM-IMPLEMENTATION-STATUS.md)

@@ -10,11 +10,13 @@ import {
 import { type DashboardSnapshot, decryptJson, encryptJson } from "@content-empire/shared";
 import Fastify from "fastify";
 import {
+  buildFacebookAuthUrl,
+  buildInstagramAuthUrl,
+  buildPlatformRedirectUri,
+  buildThreadsAuthUrl,
   buildGenericRedirectUri,
   buildGoogleAuthUrl,
   buildLinkedInAuthUrl,
-  buildMetaAuthUrl,
-  buildMetaRedirectUri,
   buildPinterestAuthUrl,
   buildPkceVerifier,
   buildRedditAuthUrl,
@@ -22,45 +24,57 @@ import {
   buildTikTokRedirectUri,
   buildXAuthUrl,
   createOauthState,
+  FACEBOOK_SCOPES,
   exchangeGoogleCode,
   exchangeLinkedInCode,
-  exchangeMetaCode,
-  exchangeMetaLongLivedToken,
+  exchangeFacebookCode,
+  exchangeFacebookLongLivedToken,
+  exchangeInstagramCode,
+  exchangeThreadsCode,
   exchangePinterestCode,
   exchangeRedditCode,
   exchangeTikTokCode,
   exchangeXCode,
   fetchGoogleChannel,
+  fetchInstagramProfile,
   fetchLinkedInProfile,
   fetchMetaBusinessContext,
   fetchPinterestMe,
   fetchRedditMe,
   fetchTikTokCreatorInfo,
+  fetchThreadsProfile,
+  INSTAGRAM_SCOPES,
   refreshGoogleToken,
+  refreshInstagramToken,
   refreshPinterestToken,
   refreshRedditToken,
   refreshTikTokToken,
+  THREADS_SCOPES,
   refreshXToken
 } from "./platform-auth.js";
 import {
   createBlueskySession,
+  fetchFacebookMetrics,
+  fetchInstagramMetrics,
   fetchPinterestAnalytics,
   fetchRedditInbox,
-  fetchMetaMetrics,
+  fetchThreadsMetrics,
   fetchTikTokCreatorAnalytics,
   fetchXMetrics,
   fetchYoutubeAnalytics,
   publishBlueskyPost,
+  publishFacebookContent,
   publishLinkedInPost,
   publishPinterestPin,
   publishRedditPost,
+  publishThreadsContent,
   publishXPost,
-  publishFacebookContent,
   publishInstagramContent,
   publishTikTokContent,
+  replyFacebookComment,
+  replyInstagramComment,
   replyRedditComment,
   replyYoutubeComment,
-  replyMetaComment,
   sendMetaDm,
   uploadYoutubeVideo
 } from "./platform-execution.js";
@@ -299,7 +313,7 @@ async function executePlatformAction(accountId: string, platform: string, action
     }
 
     if (action === "reply_comment" && typeof payload.commentId === "string" && typeof payload.message === "string") {
-      return replyMetaComment(String(tokenSet.pageAccessToken ?? tokenSet.accessToken), payload.commentId, payload.message);
+      return replyFacebookComment(String(tokenSet.pageAccessToken ?? tokenSet.accessToken), payload.commentId, payload.message);
     }
 
     if (action === "send_dm" && typeof payload.recipientId === "string" && typeof payload.message === "string") {
@@ -307,7 +321,7 @@ async function executePlatformAction(accountId: string, platform: string, action
     }
 
     if (action === "analyze_performance") {
-      return fetchMetaMetrics(
+      return fetchFacebookMetrics(
         String(tokenSet.pageAccessToken ?? tokenSet.accessToken),
         String(tokenSet.pageId ?? record.metadata.pageId ?? ""),
         Array.isArray(payload.metrics) ? payload.metrics.map(String) : ["page_impressions", "page_post_engagements"]
@@ -327,14 +341,50 @@ async function executePlatformAction(accountId: string, platform: string, action
     }
 
     if (action === "reply_comment" && typeof payload.commentId === "string" && typeof payload.message === "string") {
-      return replyMetaComment(String(tokenSet.accessToken), payload.commentId, payload.message);
+      return replyInstagramComment(String(tokenSet.accessToken), payload.commentId, payload.message);
     }
 
     if (action === "analyze_performance") {
-      return fetchMetaMetrics(
+      return fetchInstagramMetrics(
         String(tokenSet.accessToken),
         String(tokenSet.instagramBusinessId ?? record.metadata.instagramBusinessId ?? ""),
         Array.isArray(payload.metrics) ? payload.metrics.map(String) : ["impressions", "reach", "profile_views"]
+      );
+    }
+  }
+
+  if (platform === "threads") {
+    if (action === "publish_post") {
+      return publishThreadsContent(String(tokenSet.accessToken), {
+        threadsUserId: String(tokenSet.threadsUserId ?? record.metadata.threadsUserId ?? ""),
+        text:
+          typeof payload.text === "string"
+            ? payload.text
+            : typeof payload.message === "string"
+              ? payload.message
+              : typeof payload.caption === "string"
+                ? payload.caption
+                : undefined,
+        imageUrl: typeof payload.imageUrl === "string" ? payload.imageUrl : undefined,
+        videoUrl: typeof payload.videoUrl === "string" ? payload.videoUrl : undefined
+      });
+    }
+
+    if (action === "reply_comment" && typeof payload.commentId === "string" && typeof payload.message === "string") {
+      return publishThreadsContent(String(tokenSet.accessToken), {
+        threadsUserId: String(tokenSet.threadsUserId ?? record.metadata.threadsUserId ?? ""),
+        text: payload.message,
+        replyToId: payload.commentId
+      });
+    }
+
+    if (action === "analyze_performance") {
+      return fetchThreadsMetrics(
+        String(tokenSet.accessToken),
+        String(tokenSet.threadsUserId ?? record.metadata.threadsUserId ?? ""),
+        Array.isArray(payload.metrics)
+          ? payload.metrics.map(String)
+          : ["views", "likes", "replies", "reposts", "quotes", "followers_count"]
       );
     }
   }
@@ -730,9 +780,19 @@ app.get("/api/auth/:platform/start", async (request, reply) => {
 
   const oauthState = createOauthState();
 
-  if (params.platform === "meta" && !["facebook", "instagram"].includes(account.platform)) {
+  if (params.platform === "facebook" && account.platform !== "facebook") {
     reply.code(400);
-    return { error: "Meta OAuth only applies to Facebook and Instagram accounts." };
+    return { error: "Facebook OAuth only applies to Facebook accounts." };
+  }
+
+  if (params.platform === "instagram" && account.platform !== "instagram") {
+    reply.code(400);
+    return { error: "Instagram OAuth only applies to Instagram accounts." };
+  }
+
+  if (params.platform === "threads" && account.platform !== "threads") {
+    reply.code(400);
+    return { error: "Threads OAuth only applies to Threads accounts." };
   }
 
   if (params.platform === "tiktok" && account.platform !== "tiktok") {
@@ -768,8 +828,8 @@ app.get("/api/auth/:platform/start", async (request, reply) => {
   state.oauthStates[oauthState] = {
     accountId: account.id,
     provider:
-      params.platform === "meta"
-        ? "meta"
+      params.platform === "facebook" || params.platform === "instagram" || params.platform === "threads"
+        ? (params.platform as "facebook" | "instagram" | "threads")
         : params.platform === "tiktok"
           ? "tiktok"
           : params.platform === "google"
@@ -778,27 +838,36 @@ app.get("/api/auth/:platform/start", async (request, reply) => {
     createdAt: new Date().toISOString()
   };
 
-  if (params.platform === "meta") {
+  if (params.platform === "facebook") {
     persistState();
-    const authUrl = buildMetaAuthUrl();
-    authUrl.searchParams.set("client_id", process.env.META_APP_ID ?? "");
-    authUrl.searchParams.set("redirect_uri", buildMetaRedirectUri());
+    const authUrl = buildFacebookAuthUrl();
+    authUrl.searchParams.set("client_id", process.env.META_FACEBOOK_APP_ID ?? process.env.META_APP_ID ?? "");
+    authUrl.searchParams.set("redirect_uri", buildPlatformRedirectUri("facebook"));
+    authUrl.searchParams.set("response_type", "code");
     authUrl.searchParams.set("state", oauthState);
-    authUrl.searchParams.set(
-      "scope",
-      [
-        "pages_show_list",
-        "pages_read_engagement",
-        "pages_manage_posts",
-        "pages_manage_metadata",
-        "pages_messaging",
-        "instagram_basic",
-        "instagram_content_publish",
-        "instagram_manage_comments",
-        "instagram_manage_messages",
-        "business_management"
-      ].join(",")
-    );
+    authUrl.searchParams.set("scope", FACEBOOK_SCOPES.join(","));
+    return reply.redirect(authUrl.toString());
+  }
+
+  if (params.platform === "instagram") {
+    persistState();
+    const authUrl = buildInstagramAuthUrl();
+    authUrl.searchParams.set("client_id", process.env.META_INSTAGRAM_APP_ID ?? process.env.META_APP_ID ?? "");
+    authUrl.searchParams.set("redirect_uri", buildPlatformRedirectUri("instagram"));
+    authUrl.searchParams.set("response_type", "code");
+    authUrl.searchParams.set("state", oauthState);
+    authUrl.searchParams.set("scope", INSTAGRAM_SCOPES.join(","));
+    return reply.redirect(authUrl.toString());
+  }
+
+  if (params.platform === "threads") {
+    persistState();
+    const authUrl = buildThreadsAuthUrl();
+    authUrl.searchParams.set("client_id", process.env.META_THREADS_APP_ID ?? process.env.META_APP_ID ?? "");
+    authUrl.searchParams.set("redirect_uri", buildPlatformRedirectUri("threads"));
+    authUrl.searchParams.set("response_type", "code");
+    authUrl.searchParams.set("state", oauthState);
+    authUrl.searchParams.set("scope", THREADS_SCOPES.join(","));
     return reply.redirect(authUrl.toString());
   }
 
@@ -874,7 +943,7 @@ app.get("/api/auth/:platform/start", async (request, reply) => {
   return reply.redirect(googleUrl.toString());
 });
 
-app.get("/api/oauth/meta/callback", async (request, reply) => {
+app.get("/api/oauth/facebook/callback", async (request, reply) => {
   const query = request.query as { code?: string; state?: string; error?: string; error_message?: string };
   const appUrl = process.env.APP_URL ?? "http://localhost:3000";
 
@@ -884,7 +953,7 @@ app.get("/api/oauth/meta/callback", async (request, reply) => {
 
   if (!query.code || !query.state || !state.oauthStates[query.state]) {
     reply.code(400);
-    return { error: "Invalid Meta OAuth callback." };
+    return { error: "Invalid Facebook OAuth callback." };
   }
 
   const pending = state.oauthStates[query.state];
@@ -897,27 +966,20 @@ app.get("/api/oauth/meta/callback", async (request, reply) => {
     return { error: "Account not found" };
   }
 
-  const shortLived = await exchangeMetaCode(query.code);
-  const longLived = await exchangeMetaLongLivedToken(shortLived.access_token);
+  const shortLived = await exchangeFacebookCode(query.code);
+  const longLived = await exchangeFacebookLongLivedToken(shortLived.access_token);
   const businessContext = await fetchMetaBusinessContext(longLived.access_token ?? shortLived.access_token);
 
-  const preferredPageId =
-    state.setup[account.id]?.apiConfig.pageId ?? state.setup[account.id]?.apiConfig.instagramBusinessId;
-  const selectedPage =
-    businessContext.find((page) => page.id === preferredPageId) ??
-    businessContext.find((page) => page.instagram_business_account || page.connected_instagram_account) ??
-    businessContext[0];
-  const instagramAccount =
-    selectedPage?.instagram_business_account ?? selectedPage?.connected_instagram_account ?? null;
+  const preferredPageId = state.setup[account.id]?.apiConfig.pageId;
+  const selectedPage = businessContext.find((page) => page.id === preferredPageId) ?? businessContext[0];
 
   state.credentials[account.id] = {
-    provider: "meta",
+    provider: "facebook",
     encryptedTokenSet: encryptJson(
       {
         accessToken: longLived.access_token ?? shortLived.access_token,
         pageAccessToken: selectedPage?.access_token ?? null,
-        pageId: selectedPage?.id ?? null,
-        instagramBusinessId: instagramAccount?.id ?? null
+        pageId: selectedPage?.id ?? null
       },
       getTokenSecret()
     ),
@@ -925,14 +987,11 @@ app.get("/api/oauth/meta/callback", async (request, reply) => {
     expiresAt: longLived.expires_in ? new Date(Date.now() + longLived.expires_in * 1000).toISOString() : null,
     refreshExpiresAt: null,
     updatedAt: new Date().toISOString(),
-    externalAccountId: account.platform === "facebook" ? (selectedPage?.id ?? null) : (instagramAccount?.id ?? null),
-    externalUsername:
-      account.platform === "facebook" ? (selectedPage?.name ?? null) : (instagramAccount?.username ?? null),
+    externalAccountId: selectedPage?.id ?? null,
+    externalUsername: selectedPage?.name ?? null,
     metadata: {
       pageId: selectedPage?.id ?? "",
-      pageName: selectedPage?.name ?? "",
-      instagramBusinessId: instagramAccount?.id ?? "",
-      instagramUsername: instagramAccount?.username ?? ""
+      pageName: selectedPage?.name ?? ""
     }
   };
 
@@ -942,14 +1001,145 @@ app.get("/api/oauth/meta/callback", async (request, reply) => {
   appendAudit({
     id: `audit_${Date.now()}`,
     actor: "Operator",
-    action: "oauth_connect_meta",
+    action: "oauth_connect_facebook",
     subject: account.displayName,
     status: "success",
     createdAt: new Date().toISOString(),
-    detail: `Meta OAuth connected for ${account.platform}.`
+    detail: "Facebook OAuth connected."
   });
 
-  return reply.redirect(`${appUrl}/accounts/${account.id}?oauth=meta-connected`);
+  return reply.redirect(`${appUrl}/accounts/${account.id}?oauth=facebook-connected`);
+});
+
+app.get("/api/oauth/instagram/callback", async (request, reply) => {
+  const query = request.query as { code?: string; state?: string; error?: string; error_reason?: string };
+  const appUrl = process.env.APP_URL ?? "http://localhost:3000";
+
+  if (query.error) {
+    return reply.redirect(`${appUrl}/accounts?oauth_error=${encodeURIComponent(query.error_reason ?? query.error)}`);
+  }
+
+  if (!query.code || !query.state || !state.oauthStates[query.state]) {
+    reply.code(400);
+    return { error: "Invalid Instagram OAuth callback." };
+  }
+
+  const pending = state.oauthStates[query.state];
+  delete state.oauthStates[query.state];
+  persistState();
+
+  const account = state.accounts.find((item) => item.id === pending.accountId);
+  if (!account) {
+    reply.code(404);
+    return { error: "Account not found" };
+  }
+
+  const tokenSet = await exchangeInstagramCode(query.code);
+  const profile = await fetchInstagramProfile(tokenSet.access_token);
+  const instagramBusinessId = String(profile.user_id ?? profile.id ?? tokenSet.user_id ?? "");
+
+  state.credentials[account.id] = {
+    provider: "instagram",
+    encryptedTokenSet: encryptJson(
+      {
+        accessToken: tokenSet.access_token,
+        instagramBusinessId
+      },
+      getTokenSecret()
+    ),
+    scopes: INSTAGRAM_SCOPES,
+    expiresAt: tokenSet.expires_in ? new Date(Date.now() + tokenSet.expires_in * 1000).toISOString() : null,
+    refreshExpiresAt: null,
+    updatedAt: new Date().toISOString(),
+    externalAccountId: instagramBusinessId || null,
+    externalUsername: profile.username ?? profile.name ?? null,
+    metadata: {
+      instagramBusinessId,
+      instagramUsername: profile.username ?? "",
+      instagramName: profile.name ?? ""
+    }
+  };
+
+  account.authStatus = "configured";
+  account.lastAuthRefreshAt = new Date().toISOString();
+
+  appendAudit({
+    id: `audit_${Date.now()}`,
+    actor: "Operator",
+    action: "oauth_connect_instagram",
+    subject: account.displayName,
+    status: "success",
+    createdAt: new Date().toISOString(),
+    detail: "Instagram OAuth connected."
+  });
+
+  return reply.redirect(`${appUrl}/accounts/${account.id}?oauth=instagram-connected`);
+});
+
+app.get("/api/oauth/threads/callback", async (request, reply) => {
+  const query = request.query as { code?: string; state?: string; error?: string };
+  const appUrl = process.env.APP_URL ?? "http://localhost:3000";
+
+  if (query.error) {
+    return reply.redirect(`${appUrl}/accounts?oauth_error=${encodeURIComponent(query.error)}`);
+  }
+
+  if (!query.code || !query.state || !state.oauthStates[query.state]) {
+    reply.code(400);
+    return { error: "Invalid Threads OAuth callback." };
+  }
+
+  const pending = state.oauthStates[query.state];
+  delete state.oauthStates[query.state];
+  persistState();
+
+  const account = state.accounts.find((item) => item.id === pending.accountId);
+  if (!account) {
+    reply.code(404);
+    return { error: "Account not found" };
+  }
+
+  const tokenSet = await exchangeThreadsCode(query.code);
+  const threadsUserId = String(tokenSet.user_id ?? "");
+  const profile = await fetchThreadsProfile(tokenSet.access_token, threadsUserId);
+  const resolvedThreadsUserId = String(profile.id ?? threadsUserId);
+
+  state.credentials[account.id] = {
+    provider: "threads",
+    encryptedTokenSet: encryptJson(
+      {
+        accessToken: tokenSet.access_token,
+        threadsUserId: resolvedThreadsUserId
+      },
+      getTokenSecret()
+    ),
+    scopes: THREADS_SCOPES,
+    expiresAt: null,
+    refreshExpiresAt: null,
+    updatedAt: new Date().toISOString(),
+    externalAccountId: resolvedThreadsUserId || null,
+    externalUsername: profile.username ?? profile.name ?? null,
+    metadata: {
+      threadsUserId: resolvedThreadsUserId,
+      threadsUsername: profile.username ?? "",
+      threadsName: profile.name ?? ""
+    }
+  };
+
+  account.authStatus = "configured";
+  account.lastAuthRefreshAt = new Date().toISOString();
+
+  appendAudit({
+    id: `audit_${Date.now()}`,
+    actor: "Operator",
+    action: "oauth_connect_threads",
+    subject: account.displayName,
+    status: "success",
+    createdAt: new Date().toISOString(),
+    detail: "Threads OAuth connected."
+  });
+
+  return reply.redirect(`${appUrl}/accounts/${account.id}?oauth=threads-connected`);
 });
 
 app.get("/api/oauth/tiktok/callback", async (request, reply) => {
@@ -1322,15 +1512,38 @@ app.post("/api/accounts/:accountId/refresh-auth", async (request, reply) => {
     };
   }
 
-  if (credential.provider === "meta") {
+  if (credential.provider === "facebook") {
     const tokenSet = getDecryptedTokenSet(account.id);
     const accessToken = typeof tokenSet?.accessToken === "string" ? tokenSet.accessToken : null;
     if (!accessToken) {
       reply.code(400);
-      return { error: "No Meta access token is available." };
+      return { error: "No Facebook access token is available." };
     }
 
-    const refreshed = await exchangeMetaLongLivedToken(accessToken);
+    const refreshed = await exchangeFacebookLongLivedToken(accessToken);
+    state.credentials[account.id] = {
+      ...credential,
+      encryptedTokenSet: encryptJson(
+        {
+          ...tokenSet,
+          accessToken: refreshed.access_token ?? accessToken
+        },
+        getTokenSecret()
+      ),
+      expiresAt: refreshed.expires_in ? new Date(Date.now() + refreshed.expires_in * 1000).toISOString() : credential.expiresAt,
+      updatedAt: new Date().toISOString()
+    };
+  }
+
+  if (credential.provider === "instagram") {
+    const tokenSet = getDecryptedTokenSet(account.id);
+    const accessToken = typeof tokenSet?.accessToken === "string" ? tokenSet.accessToken : null;
+    if (!accessToken) {
+      reply.code(400);
+      return { error: "No Instagram access token is available." };
+    }
+
+    const refreshed = await refreshInstagramToken(accessToken);
     state.credentials[account.id] = {
       ...credential,
       encryptedTokenSet: encryptJson(

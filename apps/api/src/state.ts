@@ -33,7 +33,17 @@ type StoredSessionRecord = {
 };
 
 type StoredCredential = {
-  provider: "meta" | "tiktok" | "x" | "linkedin" | "reddit" | "pinterest" | "google" | "bluesky";
+  provider:
+    | "facebook"
+    | "instagram"
+    | "threads"
+    | "tiktok"
+    | "x"
+    | "linkedin"
+    | "reddit"
+    | "pinterest"
+    | "google"
+    | "bluesky";
   encryptedTokenSet: string;
   scopes: string[];
   expiresAt: string | null;
@@ -46,7 +56,7 @@ type StoredCredential = {
 
 type StoredOauthState = {
   accountId: string;
-  provider: "meta" | "tiktok" | "x" | "linkedin" | "reddit" | "pinterest" | "google";
+  provider: "facebook" | "instagram" | "threads" | "tiktok" | "x" | "linkedin" | "reddit" | "pinterest" | "google";
   createdAt: string;
   codeVerifier?: string;
 };

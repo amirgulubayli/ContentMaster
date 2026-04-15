@@ -77,6 +77,7 @@ export function inferPlatformFromHost(hostname: string) {
   if (host.includes("facebook") || host.includes("instagram") || host.includes("graph.facebook")) {
     return host.includes("instagram") ? "instagram" : "facebook";
   }
+  if (host.includes("threads") || host.includes("graph.threads")) return "threads";
   if (host.includes("tiktok")) return "tiktok";
   if (host.includes("youtube") || host.includes("googleapis") || host.includes("googleusercontent")) {
     return "youtube";
