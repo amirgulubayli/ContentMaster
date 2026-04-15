@@ -89,6 +89,7 @@ import {
   captureSessionSchema,
   certifyAccountSchema,
   connectAccountSchema,
+  connectAccessTokenSchema,
   createEditJobSchema,
   createAccountSchema,
   createProjectSchema,
@@ -134,6 +135,128 @@ function getDecryptedTokenSet(accountId: string) {
   }
 
   return decryptJson<Record<string, string | null>>(record.encryptedTokenSet, getTokenSecret());
+}
+
+function upsertAccountSetupApiField(accountId: string, key: string, value: string) {
+  const account = state.accounts.find((item) => item.id === accountId);
+  const existingSetup = state.setup[accountId];
+
+  state.setup[accountId] = {
+    accountId,
+    connectorMode: existingSetup?.connectorMode ?? account?.connectorMode ?? "api_auth",
+    automationMode: existingSetup?.automationMode ?? account?.automationMode ?? "manual_review",
+    authStatus: account?.authStatus ?? existingSetup?.authStatus ?? "configured",
+    openClawEnabled: existingSetup?.openClawEnabled ?? account?.openClawEnabled ?? false,
+    apiConfig: {
+      ...(existingSetup?.apiConfig ?? {}),
+      [key]: value
+    },
+    sessionConfig: existingSetup?.sessionConfig ?? {},
+    notes: existingSetup?.notes ?? "",
+    updatedAt: new Date().toISOString()
+  };
+}
+
+async function connectInstagramManualAccessToken(
+  account: (typeof state.accounts)[number],
+  accessToken: string,
+  externalAccountId?: string
+) {
+  const now = new Date().toISOString();
+  const profile = await fetchInstagramProfile(accessToken);
+  const instagramBusinessId = String(externalAccountId || profile.user_id ?? profile.id ?? "").trim();
+
+  if (!instagramBusinessId) {
+    throw new Error("Instagram access token is valid, but no Instagram account ID could be resolved.");
+  }
+
+  state.credentials[account.id] = {
+    provider: "instagram",
+    encryptedTokenSet: encryptJson(
+      {
+        accessToken,
+        instagramBusinessId
+      },
+      getTokenSecret()
+    ),
+    scopes: [],
+    expiresAt: null,
+    refreshExpiresAt: null,
+    updatedAt: now,
+    externalAccountId: instagramBusinessId,
+    externalUsername: profile.username ?? profile.name ?? null,
+    metadata: {
+      instagramBusinessId,
+      instagramUsername: profile.username ?? "",
+      instagramName: profile.name ?? "",
+      connectionMethod: "manual_access_token"
+    }
+  };
+
+  account.authStatus = "configured";
+  account.lastAuthRefreshAt = now;
+  upsertAccountSetupApiField(account.id, "instagramBusinessId", instagramBusinessId);
+
+  appendAudit({
+    id: `audit_${Date.now()}`,
+    actor: "Operator",
+    action: "connect_instagram_access_token",
+    subject: account.displayName,
+    status: "success",
+    createdAt: now,
+    detail: "Instagram access token validated and stored."
+  });
+}
+
+async function connectThreadsManualAccessToken(
+  account: (typeof state.accounts)[number],
+  accessToken: string,
+  externalAccountId?: string
+) {
+  const now = new Date().toISOString();
+  const profile = await fetchThreadsProfile(accessToken, externalAccountId?.trim() || undefined);
+  const threadsUserId = String(profile.id ?? externalAccountId ?? "").trim();
+
+  if (!threadsUserId) {
+    throw new Error("Threads access token is valid, but no Threads user ID could be resolved.");
+  }
+
+  state.credentials[account.id] = {
+    provider: "threads",
+    encryptedTokenSet: encryptJson(
+      {
+        accessToken,
+        threadsUserId
+      },
+      getTokenSecret()
+    ),
+    scopes: [],
+    expiresAt: null,
+    refreshExpiresAt: null,
+    updatedAt: now,
+    externalAccountId: threadsUserId,
+    externalUsername: profile.username ?? profile.name ?? null,
+    metadata: {
+      threadsUserId,
+      threadsUsername: profile.username ?? "",
+      threadsName: profile.name ?? "",
+      connectionMethod: "manual_access_token"
+    }
+  };
+
+  account.authStatus = "configured";
+  account.lastAuthRefreshAt = now;
+  upsertAccountSetupApiField(account.id, "threadsUserId", threadsUserId);
+
+  appendAudit({
+    id: `audit_${Date.now()}`,
+    actor: "Operator",
+    action: "connect_threads_access_token",
+    subject: account.displayName,
+    status: "success",
+    createdAt: now,
+    detail: "Threads access token validated and stored."
+  });
 }
 
 async function executeSessionAction(accountId: string, platform: string, action: string, payload: Record<string, unknown>) {
@@ -763,6 +886,63 @@ app.get("/api/accounts/:accountId/profile", async (request, reply) => {
   };
 });
 
+app.post("/api/accounts/:accountId/connect-access-token", async (request, reply) => {
+  const params = request.params as { accountId: string };
+  const parsed = connectAccessTokenSchema.safeParse({
+    ...(request.body as Record<string, unknown>),
+    accountId: params.accountId
+  });
+
+  if (!parsed.success) {
+    reply.code(400);
+    return { error: "Invalid access token payload", issues: parsed.error.issues };
+  }
+
+  const account = state.accounts.find((item) => item.id === parsed.data.accountId);
+  if (!account) {
+    reply.code(404);
+    return { error: "Account not found" };
+  }
+
+  if (account.platform !== "instagram" && account.platform !== "threads") {
+    reply.code(400);
+    return { error: "Manual access token connect is only supported for Instagram and Threads." };
+  }
+
+  try {
+    if (account.platform === "instagram") {
+      await connectInstagramManualAccessToken(
+        account,
+        parsed.data.accessToken,
+        parsed.data.externalAccountId || undefined
+      );
+    } else {
+      await connectThreadsManualAccessToken(
+        account,
+        parsed.data.accessToken,
+        parsed.data.externalAccountId || undefined
+      );
+    }
+  } catch (error) {
+    request.log.warn({ err: error, accountId: account.id, platform: account.platform }, "Access token connect failed");
+    reply.code(400);
+    return {
+      error:
+        error instanceof Error && error.message.trim().length > 0
+          ? error.message
+          : "The access token could not be validated for this account."
+    };
+  }
+
+  return {
+    accepted: true,
+    provider: state.credentials[account.id]?.provider ?? account.platform,
+    externalAccountId: state.credentials[account.id]?.externalAccountId ?? null,
+    externalUsername: state.credentials[account.id]?.externalUsername ?? null,
+    metadata: state.credentials[account.id]?.metadata ?? {}
+  };
+});
+
 app.get("/api/auth/:platform/start", async (request, reply) => {
   const params = request.params as { platform: string };
   const query = request.query as { accountId?: string };
@@ -1056,7 +1236,8 @@ app.get("/api/oauth/instagram/callback", async (request, reply) => {
     metadata: {
       instagramBusinessId,
       instagramUsername: profile.username ?? "",
-      instagramName: profile.name ?? ""
+      instagramName: profile.name ?? "",
+      connectionMethod: "oauth"
     }
   };
 
@@ -1122,7 +1303,8 @@ app.get("/api/oauth/threads/callback", async (request, reply) => {
     metadata: {
       threadsUserId: resolvedThreadsUserId,
       threadsUsername: profile.username ?? "",
-      threadsName: profile.name ?? ""
+      threadsName: profile.name ?? "",
+      connectionMethod: "oauth"
     }
   };
 

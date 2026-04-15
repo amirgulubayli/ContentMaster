@@ -38,6 +38,12 @@ export const connectAccountSchema = z.object({
   accountId: z.string()
 });
 
+export const connectAccessTokenSchema = z.object({
+  accountId: z.string(),
+  accessToken: z.string().min(20),
+  externalAccountId: z.string().optional().default("")
+});
+
 export const certifyAccountSchema = z.object({
   accountId: z.string(),
   featureOverrides: z.array(featureKeySchema).optional()

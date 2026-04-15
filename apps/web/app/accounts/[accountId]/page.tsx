@@ -4,6 +4,7 @@ import {
   captureSessionAction,
   certifyAccountAction,
   connectAccountAction,
+  connectAccessTokenAction,
   refreshAuthAction,
   updateAccountSetupAction
 } from "../../actions";
@@ -191,13 +192,14 @@ export default async function AccountDetailPage({
         <section className="panel">
           <header className="panel-header">
             <h2>Provider auth</h2>
-            <p>Official auth/app-password state for platforms that use provider credentials.</p>
+            <p>OAuth, app-password, and validated manual access-token state for platforms that use provider credentials.</p>
           </header>
           <div className="stack-column">
             {profile.authConnection ? (
               <article className="platform-card">
                 <strong>{profile.authConnection.provider}</strong>
                 <span>{profile.authConnection.externalUsername ?? profile.authConnection.externalAccountId ?? "connected"}</span>
+                <p>Connection method: {profile.authConnection.metadata.connectionMethod ?? "oauth"}</p>
                 <p>Updated: {profile.authConnection.updatedAt}</p>
                 <p>Expires: {profile.authConnection.expiresAt ?? "not supplied"}</p>
                 <p>Scopes: {profile.authConnection.scopes.length > 0 ? profile.authConnection.scopes.join(", ") : "not returned"}</p>
@@ -230,6 +232,37 @@ export default async function AccountDetailPage({
                 </form>
               ) : null}
             </div>
+            {account.platform === "instagram" || account.platform === "threads" ? (
+              <section className="subpanel">
+                <h3>Manual access token connect</h3>
+                <p className="empty-state">
+                  Use this only when you already have a valid token from the same Meta app. The server will validate the token against the provider profile endpoint before storing it.
+                </p>
+                <form action={connectAccessTokenAction} className="grid-form">
+                  <input type="hidden" name="accountId" value={account.id} />
+                  <label className="field-block">
+                    <span>Access token</span>
+                    <input type="password" name="accessToken" placeholder="Paste a valid access token" required />
+                    <small>Stored encrypted after validation. This field never shows the saved token back to the UI.</small>
+                  </label>
+                  <label className="field-block">
+                    <span>{account.platform === "instagram" ? "Instagram Account ID" : "Threads User ID"} (optional)</span>
+                    <input
+                      type="text"
+                      name="externalAccountId"
+                      defaultValue={
+                        account.platform === "instagram"
+                          ? setup.apiConfig.instagramBusinessId ?? profile.authConnection?.metadata.instagramBusinessId ?? ""
+                          : setup.apiConfig.threadsUserId ?? profile.authConnection?.metadata.threadsUserId ?? ""
+                      }
+                      placeholder={account.platform === "instagram" ? "Optional Instagram account ID" : "Optional Threads user ID"}
+                    />
+                    <small>Leave blank if the token can resolve the account profile on its own.</small>
+                  </label>
+                  <button type="submit">Connect access token</button>
+                </form>
+              </section>
+            ) : null}
           </div>
         </section>
       ) : null}

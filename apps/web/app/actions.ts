@@ -175,6 +175,22 @@ export async function updateAccountSetupAction(formData: FormData) {
   redirect(`/accounts/${formData.get("accountId")}`);
 }
 
+export async function connectAccessTokenAction(formData: FormData) {
+  const accountId = String(formData.get("accountId") ?? "").trim();
+  const accessToken = String(formData.get("accessToken") ?? "").trim();
+  const externalAccountId = String(formData.get("externalAccountId") ?? "").trim();
+
+  await postJson(`/api/accounts/${accountId}/connect-access-token`, {
+    accountId,
+    accessToken,
+    externalAccountId
+  });
+
+  revalidatePath("/accounts");
+  revalidatePath(`/accounts/${accountId}`);
+  redirect(`/accounts/${accountId}`);
+}
+
 export async function upsertProxyAction(formData: FormData) {
   const label = getTrimmedField(formData, "label");
   const raw = getTrimmedField(formData, "raw");

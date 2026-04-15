@@ -344,7 +344,8 @@ export const platformGuides: Record<Platform, PlatformGuide> = {
     callbackUrl: "https://your-public-app-url/api/oauth/instagram/callback",
     credentialNotes: [
       "Meta currently points hashtag discovery and some insight workflows to the Facebook Login setup, so keep that as a separate lane if you need it.",
-      "The callback URL must match APP_URL exactly in the server .env."
+      "The callback URL must match APP_URL exactly in the server .env.",
+      "A manual access-token import path is available for operator use, but the token still has to be valid for this Instagram app and the required scopes are not introspected automatically."
     ]
   },
   threads: {
@@ -362,7 +363,8 @@ export const platformGuides: Record<Platform, PlatformGuide> = {
     callbackUrl: "https://your-public-app-url/api/oauth/threads/callback",
     credentialNotes: [
       "Threads does not need a session bundle for the intended production path.",
-      "Use a dedicated Threads app for dev and prod if you want cleaner blast-radius separation."
+      "Use a dedicated Threads app for dev and prod if you want cleaner blast-radius separation.",
+      "A manual access-token import path is available for operator use, but the token still has to be valid for this Threads app and scope coverage is not introspected automatically."
     ]
   },
   tiktok: {

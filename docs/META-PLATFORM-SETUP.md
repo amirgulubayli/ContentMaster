@@ -153,6 +153,8 @@ Account setup notes:
 - If you want to pin a specific Instagram account in setup, store `instagramBusinessId` in the account API config.
 - Meta's own dashboard notes that hashtag discovery and some insights flows still point to the Facebook Login path. Treat that as a separate analytics lane if you need it.
 - Keep Instagram on `hybrid_auth` only if you truly need browser fallback for a UI-only workflow.
+- Manual access-token import is also supported. The server validates the pasted token against the Instagram profile endpoint before storing it, but it does not introspect the token's granted scopes.
+- Instagram token refresh in the app still depends on Meta accepting the token on the refresh path, so short-lived or incompatible tokens may need to be re-imported or reconnected through OAuth.
 
 ## Threads setup
 
@@ -196,6 +198,8 @@ Account setup notes:
 
 - If you want to pin a specific Threads profile, store `threadsUserId` in the account API config.
 - Threads runs as `api_auth` only in the current implementation.
+- Manual access-token import is also supported. The server validates the pasted token against the Threads profile endpoint before storing it, but it does not introspect the token's granted scopes.
+- Threads refresh handling is not implemented in this repo yet, so manual token imports should be treated as a reconnectable credential rather than a fully managed long-lived session.
 
 ## Platform routing inside ContentMaster
 
